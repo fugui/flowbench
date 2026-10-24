@@ -1,0 +1,46 @@
+# Binaries for programs and plugins
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+flowbench-client
+flowbench-server
+flowbench-backend
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Environment & local configs
+.env
+*.local.yaml
+*.local.yml
+
+# Runtime logs, PIDs & temporary files
+logs/
+tmp/
+*.log
+*.pid
+
+# Keploy runtime temporary & report artifacts (keep curated test-sets if tracked, ignore reports/logs)
+keploy-logs.txt
+keploy/reports/
+keploy/tmp/
+bpf.o
+
+# IDE & OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store

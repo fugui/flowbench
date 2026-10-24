@@ -1,0 +1,29 @@
+# flowbench 文档知识库 (Docs Hub)
+
+本项目严格采用 **SDD (Spec-Driven Development，规范驱动开发)** 模式，所有提示词资产、需求边界、系统架构、自定义二进制协议契约、任务拆解与验证手册均在此目录中进行统一管理与版本控制。
+
+---
+
+## 目录分层架构
+
+```text
+docs/
+├── 00-prompt/       # 提示词库：记录各阶段 SDD Prompt 资产、初始化指令与演进提示词
+│   └── 01-init.md   # 系统初始化与阶段一（生成 Feature Matrix）指令提示词
+├── 01-features/     # 特性与需求边界：特性清单矩阵 (Feature Matrix)、P0~P2 优先级与 Non-Goals
+├── 02-design/       # 系统技术架构 (SDD)：三端架构、自定义二进制协议栈、业务编排与 Keploy 验证设计
+├── 03-api/          # 协议与接口契约：自定义二进制帧头规范 (Wire Format) 与 Protobuf 消息字典
+├── 04-tasks/        # 实施规划与验收：Milestone 拆解、任务作战卡与自动化验收测试标准 (AC)
+├── 05-adr/          # 架构决策记录 (ADR)：重大技术选型与权衡记录 (Architecture Decision Records)
+└── 06-ops/          # 交付与验证：Keploy eBPF 环境准备、流量录制/回放操作手册与观测报告
+```
+
+---
+
+## 目录治理规则
+
+1. **全链路双位编号递进**：
+   - 一级子目录采用阶段双位数字前缀（`00-` ~ `06-`）；
+   - 各阶段目录下的**所有 Markdown 文档必须带双位数字编号前缀**（如 `01-feature-matrix.md`、`01-system-architecture.md`、`01-binary-frame-spec.md`、`01-roadmap.md`），保证在文件树、IDE 及构建脚本中保持严格时序与逻辑有序性。
+2. **规范先行**：任何业务代码实施前，必须确保 `01-features/`、`02-design/`、`03-api/` 与 `04-tasks/` 中有明确对应的设计契约与验收标准。
+3. **决策可溯**：凡涉及关键技术选型（如自定义二进制帧结构设计、TCP 连接复用策略、Server 侧非确定性因子隔离、Keploy 录制过滤规则），须在 `05-adr/` 中以标准 ADR 模板记录背景与决策理由。
