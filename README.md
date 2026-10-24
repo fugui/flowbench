@@ -68,7 +68,7 @@ flowbench/
 
 ## SDD 开发生命周期 (Phases)
 
-- [ ] **阶段一：特性清单与边界明确** (`docs/01-features/01-feature-matrix.md`)
+- [x] **阶段一：特性清单与边界明确** ([`docs/01-features/01-feature-matrix.md`](file:///home/fugui/flowbench/docs/01-features/01-feature-matrix.md))
 - [ ] **阶段二：系统架构设计文档** (`docs/02-design/`)
   - [ ] `01-system-architecture.md` (【总览篇】三级微服务总体架构与数据流)
   - [ ] `02-wire-protocol-and-codec.md` (【协议篇】自定义 Protobuf 二进制帧协议与 TCP 拆粘包机制)
