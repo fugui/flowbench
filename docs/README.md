@@ -30,7 +30,9 @@ docs/
 │   ├── 04-m3-client-and-e2e.md       # 【M3 作战卡】Client 多模式驱动与三端全链路 E2E 测试
 │   └── 05-m4-keploy-verification.md  # 【M4 作战卡】Keploy 流量录制、二进制 Mock 与回放验证
 ├── 05-adr/          # 架构决策记录 (ADR)：重大技术选型与权衡记录 (Architecture Decision Records)
+│   └── 01-custom-binary-frame-and-determinism.md # ADR-01: 24B 二进制帧设计与确定性回放控制
 └── 06-ops/          # 交付与验证：Keploy eBPF 环境准备、流量录制/回放操作手册与观测报告
+    └── 01-keploy-verification-guide.md # 三端联调与 Keploy 流量录制回放验证指南
 ```
 
 ---

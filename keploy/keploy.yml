@@ -1,0 +1,19 @@
+# Keploy 配置文件 (用于监控、录制与回放 flowbench-server 自定义 Protobuf 二进制流量)
+version: api.keploy.io/v1beta1
+kind: Config
+name: flowbench-server
+record:
+  path: ./keploy
+  command: "./bin/flowbench-server -addr=127.0.0.1:9100 -backend-addr=127.0.0.1:9200 -conn-mode=short -deterministic=true"
+  containerName: ""
+  networkName: ""
+  buildDelay: 2
+  passThroughPorts: []
+test:
+  path: ./keploy
+  command: "./bin/flowbench-server -addr=127.0.0.1:9100 -backend-addr=127.0.0.1:9200 -conn-mode=short -deterministic=true"
+  port: 9100
+  delay: 2
+  buildDelay: 2
+  apiTimeout: 5
+  ignoreOrdering: false

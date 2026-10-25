@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+package flowbench.v1;
+
+option go_package = "github.com/fugui/flowbench/internal/protocol/pb;pb";
+
+// BizCode 定义业务层状态码契约
+enum BizCode {
+  BIZ_CODE_UNSPECIFIED   = 0;
+  BIZ_OK                 = 200; // 业务处理成功
+  BIZ_INVALID_ARGUMENT   = 400; // Server 前置参数校验失败（短路拦截）
+  BIZ_RISK_REJECTED      = 403; // 风控拦截或黑名单拒单
+  BIZ_NOT_FOUND          = 404; // SKU 或用户不存在
+  BIZ_OUT_OF_STOCK       = 409; // 库存不足拒单
+  BIZ_INTERNAL_ERROR     = 500; // 内部处理错误
+  BIZ_DOWNSTREAM_TIMEOUT = 504; // 下游 Backend 调用超时或异常
+}
+
+// OpCode: 0x01 (OpPingReq)
+message PingRequest {
+  string client_id    = 1;
+  string message      = 2;
+  int64  sent_at_unix = 3;
+}
+
+// OpCode: 0x02 (OpPongResp)
+message PongResponse {
+  int32  biz_code        = 1;
+  string server_id       = 2;
+  string echo_message    = 3;
+  string status          = 4;
+  int64  replied_at_unix = 5;
+}
+
+// OpCode: 0x11 (OpOrderQuoteReq)
+message OrderQuoteRequest {
+  string user_id          = 1;
+  string sku_id           = 2;
+  int32  quantity         = 3;
+  int32  vip_level        = 4;
+  string region           = 5;
+  int64  client_timestamp = 6;
+}
+
+// OpCode: 0x12 (OpOrderQuoteResp)
+message OrderQuoteResponse {
+  int32  biz_code              = 1;
+  string biz_message           = 2;
+  string sku_name              = 3;
+  int64  unit_price_cents      = 4;
+  int64  subtotal_cents        = 5;
+  int64  discount_cents        = 6;
+  int64  discounted_cents      = 7;
+  int64  tax_cents             = 8;
+  int64  shipping_cents        = 9;
+  int64  final_amount_cents    = 10;
+  string risk_decision         = 11;
+  string fulfillment_warehouse = 12;
+  string processing_digest     = 13;
+  string trace_tag             = 14;
+  int64  processed_at_unix     = 15;
+}
+
+// OpCode: 0x21 (OpCreditEvalReq)
+message CreditEvalRequest {
+  string user_id               = 1;
+  int64  requested_limit_cents = 2;
+  int64  annual_income_cents   = 3;
+  int64  existing_debt_cents   = 4;
+  int64  client_timestamp      = 5;
+}
+
+// OpCode: 0x22 (OpCreditEvalResp)
+message CreditEvalResponse {
+  int32  biz_code             = 1;
+  string biz_message          = 2;
+  string credit_grade         = 3;
+  int32  dti_bps              = 4;
+  int64  max_allowable_cents  = 5;
+  int64  approved_limit_cents = 6;
+  string decision             = 7;
+  string processing_digest    = 8;
+  string trace_tag            = 9;
+  int64  processed_at_unix    = 10;
+}
+
+// OpCode: 0x31 (OpBackendOrderQueryReq)
+message BackendOrderQueryRequest {
+  string sku_id  = 1;
+  string user_id = 2;
+  string region  = 3;
+}
+
+// OpCode: 0x32 (OpBackendOrderQueryResp)
+message BackendOrderQueryResponse {
+  bool   found             = 1;
+  string sku_id            = 2;
+  string sku_name          = 3;
+  int64  base_price_cents  = 4;
+  int32  available_stock   = 5;
+  int32  unit_weight_grams = 6;
+  string warehouse_code    = 7;
+  int32  user_credit_score = 8;
+  bool   risk_blacklisted  = 9;
+}
+
+// OpCode: 0x41 (OpBackendCreditQueryReq)
+message BackendCreditQueryRequest {
+  string user_id = 1;
+}
+
+// OpCode: 0x42 (OpBackendCreditQueryResp)
+message BackendCreditQueryResponse {
+  bool   found                    = 1;
+  string user_id                  = 2;
+  int32  credit_score             = 3;
+  int32  historical_default_count = 4;
+  int32  account_age_months       = 5;
+  bool   risk_blacklisted         = 6;
+}
+
+// OpCode: 0xFF (OpErrorResp)
+message ErrorResponse {
+  int32  error_code    = 1;
+  string error_message = 2;
+  uint64 request_id    = 3;
+}
