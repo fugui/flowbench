@@ -11,7 +11,8 @@ docs/
 ├── 00-prompt/       # 提示词库：记录各阶段 SDD Prompt 资产、初始化指令与演进提示词
 │   ├── 01-init.md   # 系统初始化与阶段一（生成 Feature Matrix）指令提示词
 │   ├── 02-design-prompt.md # 阶段二系统架构设计 (SDD) 提示词指令
-│   └── 03-api-and-tasks-prompt.md # 阶段三协议契约与工程任务分解提示词指令
+│   ├── 03-api-and-tasks-prompt.md # 阶段三协议契约与工程任务分解提示词指令
+│   └── 04-implementation-prompt.md # 阶段四工程实施与全链路交付验证提示词指令
 ├── 01-features/     # 特性与需求边界：特性清单矩阵 (Feature Matrix)、P0~P2 优先级与 Non-Goals
 │   └── 01-feature-matrix.md # 阶段一需求范围与特性矩阵规范 (已定稿)
 ├── 02-design/       # 系统技术架构 (SDD)：三端架构、自定义二进制协议栈、业务编排与 Keploy 验证设计
@@ -20,7 +21,14 @@ docs/
 │   ├── 03-service-orchestration.md   # 【业务篇】三端协同与 Server 业务加工编排设计
 │   └── 04-keploy-traffic-verification.md # 【验证篇】Keploy eBPF 流量录制与回放验证架构
 ├── 03-api/          # 协议与接口契约：自定义二进制帧头规范 (Wire Format) 与 Protobuf 消息字典
+│   ├── 01-binary-frame-spec.md       # 【帧协议契约】24B 二进制帧头字节级契约与 Go 接口签名
+│   └── 02-protobuf-messages.md       # 【消息契约】Protobuf 消息 Schema 与 OpCode 路由映射
 ├── 04-tasks/        # 实施规划与验收：Milestone 拆解、任务作战卡与自动化验收测试标准 (AC)
+│   ├── 01-roadmap.md                 # 【工程路线图】Milestone 1~4 依赖拓扑与质量门禁
+│   ├── 02-m1-protocol-and-codec.md   # 【M1 作战卡】自定义二进制协议与编解码器
+│   ├── 03-m2-backend-and-server.md   # 【M2 作战卡】TCP 传输层、Backend 与 Server 业务加工引擎
+│   ├── 04-m3-client-and-e2e.md       # 【M3 作战卡】Client 多模式驱动与三端全链路 E2E 测试
+│   └── 05-m4-keploy-verification.md  # 【M4 作战卡】Keploy 流量录制、二进制 Mock 与回放验证
 ├── 05-adr/          # 架构决策记录 (ADR)：重大技术选型与权衡记录 (Architecture Decision Records)
 └── 06-ops/          # 交付与验证：Keploy eBPF 环境准备、流量录制/回放操作手册与观测报告
 ```
