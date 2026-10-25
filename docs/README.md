@@ -10,10 +10,15 @@
 docs/
 ├── 00-prompt/       # 提示词库：记录各阶段 SDD Prompt 资产、初始化指令与演进提示词
 │   ├── 01-init.md   # 系统初始化与阶段一（生成 Feature Matrix）指令提示词
-│   └── 02-design-prompt.md # 阶段二系统架构设计 (SDD) 提示词指令
+│   ├── 02-design-prompt.md # 阶段二系统架构设计 (SDD) 提示词指令
+│   └── 03-api-and-tasks-prompt.md # 阶段三协议契约与工程任务分解提示词指令
 ├── 01-features/     # 特性与需求边界：特性清单矩阵 (Feature Matrix)、P0~P2 优先级与 Non-Goals
 │   └── 01-feature-matrix.md # 阶段一需求范围与特性矩阵规范 (已定稿)
 ├── 02-design/       # 系统技术架构 (SDD)：三端架构、自定义二进制协议栈、业务编排与 Keploy 验证设计
+│   ├── 01-system-architecture.md     # 【总览篇】系统总体架构与模块分层设计
+│   ├── 02-wire-protocol-and-codec.md # 【协议篇】自定义二进制帧协议与拆粘包状态机设计
+│   ├── 03-service-orchestration.md   # 【业务篇】三端协同与 Server 业务加工编排设计
+│   └── 04-keploy-traffic-verification.md # 【验证篇】Keploy eBPF 流量录制与回放验证架构
 ├── 03-api/          # 协议与接口契约：自定义二进制帧头规范 (Wire Format) 与 Protobuf 消息字典
 ├── 04-tasks/        # 实施规划与验收：Milestone 拆解、任务作战卡与自动化验收测试标准 (AC)
 ├── 05-adr/          # 架构决策记录 (ADR)：重大技术选型与权衡记录 (Architecture Decision Records)
