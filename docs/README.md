@@ -14,7 +14,8 @@ docs/
 │   ├── 03-api-and-tasks-prompt.md # 阶段三协议契约与工程任务分解提示词指令
 │   └── 04-implementation-prompt.md # 阶段四工程实施与全链路交付验证提示词指令
 ├── 01-features/     # 特性与需求边界：特性清单矩阵 (Feature Matrix)、P0~P2 优先级与 Non-Goals
-│   └── 01-feature-matrix.md # 阶段一需求范围与特性矩阵规范 (已定稿)
+│   ├── 01-feature-matrix.md # 阶段一需求范围与特性矩阵规范 (已定稿)
+│   └── 02-ebpf-native-monitor-and-console.md # 阶段一（演进篇）：原生 cilium/ebpf 协议感知监控与实时 Web 控制台特性规范
 ├── 02-design/       # 系统技术架构 (SDD)：三端架构、自定义二进制协议栈、业务编排与 Keploy 验证设计
 │   ├── 01-system-architecture.md     # 【总览篇】系统总体架构与模块分层设计
 │   ├── 02-wire-protocol-and-codec.md # 【协议篇】自定义二进制帧协议与拆粘包状态机设计

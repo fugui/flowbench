@@ -68,7 +68,9 @@ flowbench/
 
 ## SDD 开发生命周期 (Phases)
 
-- [x] **阶段一：特性清单与边界明确** ([`docs/01-features/01-feature-matrix.md`](file:///home/fugui/flowbench/docs/01-features/01-feature-matrix.md))
+- [x] **阶段一：特性清单与边界明确** (`docs/01-features/`)
+  - [x] [`01-feature-matrix.md`](file:///home/fugui/flowbench/docs/01-features/01-feature-matrix.md) (【基础篇】三级微服务与 Keploy 流量录制回放特性矩阵)
+  - [x] [`02-ebpf-native-monitor-and-console.md`](file:///home/fugui/flowbench/docs/01-features/02-ebpf-native-monitor-and-console.md) (【演进篇】原生 `cilium/ebpf` 协议感知监控、智能回放与实时 Web 控制台特性规范)
 - [x] **阶段二：系统架构设计文档** (`docs/02-design/`)
   - [x] [`01-system-architecture.md`](file:///home/fugui/flowbench/docs/02-design/01-system-architecture.md) (【总览篇】三级微服务总体架构与数据流)
   - [x] [`02-wire-protocol-and-codec.md`](file:///home/fugui/flowbench/docs/02-design/02-wire-protocol-and-codec.md) (【协议篇】自定义 Protobuf 二进制帧协议与 TCP 拆粘包机制)
