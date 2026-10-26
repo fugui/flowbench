@@ -97,4 +97,21 @@ flowchart LR
 1. **Go 原生全链路与协议边界验证 (`go test -v -race ./...` & `scripts/verify-e2e.sh`)**：
    - 在用户态完整测试 24B 帧编解码、CRC32 篡改拦截、单字节碎片与多帧粘包拆包、三端全场景通信、`Server` 加工公式准确性以及突变检测。
 2. **Keploy eBPF 录制与离线回放验证 (`scripts/keploy-record.sh` & `scripts/keploy-test.sh`)**：
-   - 调用系统安装的 `keploy` CLI（需 Linux `sudo` / `CAP_BPF` 权限挂载 eBPF 探针），执行真实的 `keploy record`（启动 `Backend` + Keploy 包裹 `Server` + 运行 `Client -mode=suite`）与 `keploy test`（不启动 `Backend`，仅由 Keploy 回放测试 `Server`），并在脚本退出前强制清理所有后台进程。
+   - 调用系统安装的 `keploy` CLI（需 Linux `sudo` / `CAP_BPF` 权限挂载 eBPF 探针），执行真实的 `keploy mock record`（启动真实 `Backend` + Keploy 包裹 `Server` 与 `Client -mode=suite`）与 `keploy mock replay`（不启动 `Backend`，仅由 Keploy eBPF 劫持 `Server -> 127.0.0.1:9200` 并返回二进制 Mock），并在脚本退出前强制清理所有后台进程。
+
+---
+
+## 6. Keploy v3.6.163 (Linux 6.8 eBPF) 实机验证结论与协议边界发现
+
+在 `Linux 6.8.0-147-generic (x86_64)` + `Keploy 3.6.163` 环境下对 `flowbench` 进行实机验证，得出以下极具工程价值的实证结论：
+
+1. **发现一：`keploy record / test` 的 Ingress Forwarder 仅支持 HTTP/1.1**：
+   - 在 `keploy record` 模式下，eBPF 探针拦截 `flowbench-server` 的 `bind(127.0.0.1:9100)` 系统调用，将其重映射至随机端口，并启动 `Using request-framed HTTP/1.1 proxy with MSG_PEEK pool liveness` 监听 `9100`。
+   - 当 `flowbench-client` 发送 `0xFB01` 开头的自定义二进制帧时，Ingress Forwarder 尝试按 HTTP/1.1 解析并报错：
+     `Failed to parse downstream HTTP request {"error": "malformed HTTP request \"\\xfb\\x01\\x01\\x01...\""}`，同时向客户端回写 `HTTP/1.1 400 Bad Request`（导致客户端读取到魔数 `0x4854` 即 `"HT"`）。
+2. **发现二：Keploy Egress Proxy (`:16789`) 完美支持自定义二进制协议 (`V2 generic parser`)**：
+   - 当 `flowbench-server` 向 `127.0.0.1:9200 (Backend)` 发起自定义 Protobuf 二进制调用时，Keploy 的出站代理自动遍历协议探测器（`postgres_v3` -> `mongo_v2` -> `http` -> `mysql` -> `http2` -> `grpc`）后回退至 `generic` 解析器（`The external dependency is not supported. Hence using generic parser`）。
+   - Keploy 准确捕获每次短连接的 24B 帧头 + Protobuf 请求与响应，将其以 Base64 二进制块（`+wEB...` 解码即为 `0xFB 0x01 0x01`）持久化至 [`keploy/keploy/flowbench-e2e/mocks.yaml`](file:///home/fugui/flowbench/keploy/keploy/flowbench-e2e/mocks.yaml)（共 4 条 `kind: Generic` 二进制 Mock）。
+3. **发现三：`keploy mock record / replay` 实现非 HTTP 二进制服务的全链路离线回放**：
+   - 通过 `keploy mock record` 与 `keploy mock replay --on-miss fail --strict`，Keploy 将同一测试作业内的 `Client -> Server:9100` 识别为 `self-call` 原生透传（绕过仅支持 HTTP 的 Ingress Proxy），同时通过 eBPF 100% 劫持 `Server -> Backend:9200` 出站连接。
+   - 在**彻底关闭 `flowbench-backend` 进程**的离线回放测试中，Keploy 精准返回 4 条二进制 Mock（`loaded: 4, consumed: 4, missed: 0`），6 大业务场景（`SC-01 ~ SC-05`）100% 离线通过；注入 `-fault-mutation=discount_bug` 后，回放立即检出金额与摘要偏差并以非零退出码拦截失败。

@@ -59,38 +59,45 @@ make verify-e2e
 
 ---
 
-## 3. Keploy eBPF 流量录制与离线回放 SOP
+## 3. Keploy eBPF 流量录制与离线回放 SOP (基于 Keploy v3.6.163 实机验证)
 
 ### 3.1 环境准备（安装 Keploy CLI）
-在具备 Linux Kernel $\ge 5.10$（支持 BTF 与 eBPF）的环境中安装 Keploy：
+在具备 Linux Kernel $\ge 5.10$（当前验证环境：`Linux 6.8.0-147-generic x86_64`，开启 `/sys/kernel/btf/vmlinux`）的环境中安装 Keploy OSS CLI：
 ```bash
-curl --silent -O -L https://keploy.io/install.sh && source install.sh
+curl --silent -O -L https://keploy.io/install.sh && source install.sh --oss
 ```
 
-### 3.2 步骤一：录制流量 (`Record Mode`)
-执行封装好的录制脚本（自动启动 `Backend:9200` -> 通过 `keploy record` 启动 `Server:9100` -> 运行 `Client -mode=suite` 发起调用 -> 自动回收后台进程）：
+### 3.2 核心实证发现：Keploy 对自定义二进制协议的 Ingress / Egress 支持边界
+在 `Keploy 3.6.163` 上的实机测试验证了以下关键结论：
+1. **Ingress Proxy (`keploy record / test`) 的 HTTP/1.1 限制**：
+   - `keploy record` 会通过 eBPF `bind` 钩子将 `flowbench-server` 的监听端口（`9100`）重映射至随机端口，并启动 `Using request-framed HTTP/1.1 proxy with MSG_PEEK pool liveness` 接管 `9100`。
+   - 当 `flowbench-client` 发送 `0xFB01` 魔数开头的自定义二进制帧时，Keploy Ingress Proxy 因强依赖 HTTP/1.1 解析而报错：`Failed to parse downstream HTTP request: malformed HTTP request "\xfb\x01..."`，并直接向客户端返回 `HTTP/1.1 400 Bad Request`（首两字节为 `0x4854` 即 `"HT"`）。
+2. **Egress Proxy (`keploy mock record / replay`) 的 Generic TCP Binary 完美支持**：
+   - Keploy 的 Egress Proxy（`:16789`）内置了 `V2 generic parser`。当检测到 `Server -> Backend (127.0.0.1:9200)` 为非标准协议时，自动回退至 `generic` 解析器（`The external dependency is not supported. Hence using generic parser`），将 24B 帧头 + Protobuf 载荷完整录制为 Base64 二进制块（以 `+wEB` 开头，解码即为 `0xFB 0x01 0x01`）。
+   - 使用 `keploy mock record` 与 `keploy mock replay` 时，Keploy 自动识别同一测试作业内的 `Client -> Server (127.0.0.1:9100)` 为 `self-call` 原生透传（绕过 HTTP-only Ingress Proxy），同时通过 eBPF 100% 劫持并回放 `Server -> Backend (127.0.0.1:9200)` 的自定义二进制流量。
+
+### 3.3 步骤一：录制流量 (`Record Mode`)
+执行封装好的录制脚本（自动启动真实 `Backend:9200` -> 通过 `keploy mock record` 启动 `Server:9100` 与 `Client -mode=suite` -> 自动清理后台进程）：
 ```bash
 make keploy-record
 # 或直接调用脚本:
 ./scripts/keploy-record.sh
 ```
-录制完成后，Keploy 会在 `./keploy/test-set-0/` 下生成：
-- 入站测试用例（捕获 `Client -> Server:9100` 的 24B 帧头 + Protobuf 请求与响应）；
-- `mocks.yaml`（捕获 `Server -> Backend:9200` 的出站 TCP 二进制查询帧与响应帧）。
+录制完成后，Keploy 会在 [`keploy/keploy/flowbench-e2e/mocks.yaml`](file:///home/fugui/flowbench/keploy/keploy/flowbench-e2e/mocks.yaml) 下生成 4 条 `kind: Generic` 二进制 Mock（对应 `SC-02`、`SC-04`、`SC-04B`、`SC-05`；而 `SC-01` 纯入站与 `SC-03` 前置校验短路均为 0 次下游调用，不产生冗余 Mock）。
 
-### 3.3 步骤二：关闭 `Backend` 执行离线回放验证 (`Test Replay Mode`)
-在**完全不启动 `flowbench-backend`** 的情况下，验证 Keploy eBPF 劫持 `Server -> 127.0.0.1:9200` 连接并返回二进制 Mock：
+### 3.4 步骤二：关闭 `Backend` 执行离线回放验证 (`Offline Replay Mode`)
+在**完全不启动 `flowbench-backend`** 的情况下，验证 Keploy eBPF 劫持 `Server -> 127.0.0.1:9200` 连接并返回二进制 Mock（`loaded: 4, consumed: 4, missed: 0`）：
 ```bash
 make keploy-test
 # 或直接调用脚本:
 ./scripts/keploy-test.sh
 ```
 
-### 3.4 步骤三：验证回归突变拦截与非确定性对照实验 (`SC-06`)
+### 3.5 步骤三：验证回归突变拦截与非确定性对照实验 (`SC-06`)
 ```bash
-# 1. 注入 Server 折扣计算 Bug (-fault-mutation=discount_bug)，预期回放检测出二进制响应与 CRC32 偏差并判定 FAIL
+# 1. 注入 Server 折扣计算 Bug (-fault-mutation=discount_bug)，预期回放检测出响应金额与 processing_digest 偏差并以 Exit Code 1 拦截失败
 ./scripts/keploy-test.sh --mutation
 
-# 2. 开启非确定性时间戳 (-deterministic=false)，观测动态字段对二进制帧字节比对的影响
+# 2. 开启非确定性时间戳 (-deterministic=false)，观测动态字段对确定性摘要与回放断言的影响
 ./scripts/keploy-test.sh --non-deterministic
 ```
