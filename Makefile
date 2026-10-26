@@ -9,6 +9,7 @@ build:
 	go build -o $(BIN_DIR)/flowbench-backend ./cmd/backend
 	go build -o $(BIN_DIR)/flowbench-server  ./cmd/server
 	go build -o $(BIN_DIR)/flowbench-client  ./cmd/client
+	go build -o $(BIN_DIR)/flowbench-monitor ./cmd/monitor
 
 test:
 	go test -v -race ./...

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/fugui/flowbench/internal/codec"
+	"github.com/fugui/flowbench/internal/protocol/pb"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -45,4 +46,34 @@ func DecodeMessageFrame(f *codec.Frame, expectedOp uint8, target proto.Message) 
 		return fmt.Errorf("protocol: unmarshal payload for opcode 0x%02X failed: %w", f.Header.OpCode, err)
 	}
 	return nil
+}
+
+// NewMessageForOpCode 根据二进制帧头的 OpCode 实例化对应的空 Protobuf Message 结构，供动态协议反射解码使用。
+func NewMessageForOpCode(opCode uint8) (proto.Message, error) {
+	switch opCode {
+	case codec.OpPingReq:
+		return &pb.PingRequest{}, nil
+	case codec.OpPongResp:
+		return &pb.PongResponse{}, nil
+	case codec.OpOrderQuoteReq:
+		return &pb.OrderQuoteRequest{}, nil
+	case codec.OpOrderQuoteResp:
+		return &pb.OrderQuoteResponse{}, nil
+	case codec.OpCreditEvalReq:
+		return &pb.CreditEvalRequest{}, nil
+	case codec.OpCreditEvalResp:
+		return &pb.CreditEvalResponse{}, nil
+	case codec.OpBackendOrderQueryReq:
+		return &pb.BackendOrderQueryRequest{}, nil
+	case codec.OpBackendOrderQueryResp:
+		return &pb.BackendOrderQueryResponse{}, nil
+	case codec.OpBackendCreditQueryReq:
+		return &pb.BackendCreditQueryRequest{}, nil
+	case codec.OpBackendCreditQueryResp:
+		return &pb.BackendCreditQueryResponse{}, nil
+	case codec.OpErrorResp:
+		return &pb.ErrorResponse{}, nil
+	default:
+		return nil, fmt.Errorf("protocol: unsupported opcode 0x%02X", opCode)
+	}
 }

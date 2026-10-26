@@ -101,3 +101,27 @@ make keploy-test
 # 2. 开启非确定性时间戳 (-deterministic=false)，观测动态字段对确定性摘要与回放断言的影响
 ./scripts/keploy-test.sh --non-deterministic
 ```
+
+---
+
+## 4. 原生 `cilium/ebpf` 协议感知监控与实时 Web 控制台 (`flowbench-monitor`)
+
+针对 Keploy 在私有二进制协议下的短板（Ingress 仅支持 HTTP/1.1、Egress 仅存储盲 Base64、缺乏私有帧头与 Protobuf 明文控制台），项目内置了基于 `github.com/cilium/ebpf` (`cgroup/connect4`) 的原生协议感知监控与回放控制台：
+
+### 4.1 一键启动实时 Web 控制台 (`http://127.0.0.1:9300`)
+```bash
+# 编译并以 sudo (CAP_BPF) 权限启动控制台
+./scripts/start-monitor.sh
+# 或直接运行:
+make build && sudo -E ./bin/flowbench-monitor -addr=127.0.0.1:9300
+```
+在浏览器打开 `http://127.0.0.1:9300` 即可：
+1. 实时查看内核 `cilium/ebpf` Program ID 与 `Ingress (9100)` / `Egress (9200)` 透明重定向计数；
+2. 点击任意捕获帧，查看 **24B 大端帧头字节色块解剖图 + CRC32 校验状态 + 解码后的 Protobuf JSON 明文**；
+3. 在网页上一键点击触发 **全链路录制 (`Record`)**、**无 Backend 离线 eBPF 回放 (`Offline Replay`)**、**注入折扣突变检测 (`Mutation: discount_bug`)** 并直接查看字段级 Diff（如 `payload.discount_cents: 6500 -> 6600`）；
+4. 在底部直接查看仓库中 [`keploy/keploy/flowbench-e2e/mocks.yaml`](file:///home/fugui/flowbench/keploy/keploy/flowbench-e2e/mocks.yaml) 盲 Base64 数据的逆向解码对照。
+
+### 4.2 运行 `cilium/ebpf` 内核级自动化集成测试
+```bash
+sudo -E env PATH="$PATH" go test -v ./internal/ebpf ./tests -run "TestKernelCgroupConnect4|TestEBPFMonitor"
+```

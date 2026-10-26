@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>flowbench | cilium/ebpf 原生二进制协议监控与回放控制台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-badge">eBPF + Protobuf</span>
+      <h1>flowbench 原生协议感知监控与回放控制台</h1>
+    </div>
+    <div class="ebpf-metrics" id="ebpf-metrics-bar">
+      <div class="metric-pill">
+        <span class="label">内核引擎模式</span>
+        <span class="value" id="metric-mode">加载中...</span>
+      </div>
+      <div class="metric-pill">
+        <span class="label">BPF Prog ID</span>
+        <span class="value" id="metric-prog-id">-</span>
+      </div>
+      <div class="metric-pill">
+        <span class="label">Ingress 劫持 (9100)</span>
+        <span class="value" id="metric-ingress-cnt">0</span>
+      </div>
+      <div class="metric-pill">
+        <span class="label">Egress 劫持 (9200)</span>
+        <span class="value" id="metric-egress-cnt">0</span>
+      </div>
+      <div class="metric-pill">
+        <span class="label">SSE 实时流</span>
+        <span class="value status-ok" id="metric-sse-status">已连接</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- 1. 实时拓扑与一键实验操控台 -->
+    <section class="card control-panel">
+      <div class="section-header">
+        <h2>⚡ 三级微服务 + cilium/ebpf (cgroup/connect4) 实时拓扑与实验操控台</h2>
+        <span class="sub-hint" id="last-action-hint">点击下方按钮一键执行全链路录制、无 Backend 离线回放或突变回归拦截</span>
+      </div>
+
+      <div class="topology-bar" id="topology-bar">
+        <div class="topo-node">
+          <div class="node-title">Client 驱动器</div>
+          <div class="node-sub">SC-01 ~ SC-05</div>
+        </div>
+        <div class="topo-arrow">
+          <span class="arrow-tag">24B + Protobuf</span>
+          <span class="arrow-line">───►</span>
+        </div>
+        <div class="topo-node hook-node">
+          <div class="node-title">eBPF Ingress Hook</div>
+          <div class="node-sub" id="topo-ingress-desc">connect4(127.0.0.1:9100)</div>
+        </div>
+        <div class="topo-arrow">
+          <span class="arrow-tag">协议感知拆帧</span>
+          <span class="arrow-line">───►</span>
+        </div>
+        <div class="topo-node sut-node">
+          <div class="node-title">Server 被测服务 (SUT)</div>
+          <div class="node-sub" id="topo-server-desc">127.0.0.1:9100 (二次加工)</div>
+        </div>
+        <div class="topo-arrow">
+          <span class="arrow-tag">connect4(:9200)</span>
+          <span class="arrow-line">───►</span>
+        </div>
+        <div class="topo-node hook-node">
+          <div class="node-title">eBPF Egress Mock 引擎</div>
+          <div class="node-sub" id="topo-egress-desc">语义匹配 + CRC32 自愈</div>
+        </div>
+        <div class="topo-arrow">
+          <span class="arrow-tag" id="topo-backend-link">录制透传 / 回放切断</span>
+          <span class="arrow-line">───►</span>
+        </div>
+        <div class="topo-node" id="topo-backend-node">
+          <div class="node-title">Backend 下游服务</div>
+          <div class="node-sub" id="topo-backend-status">127.0.0.1:9200 (待命)</div>
+        </div>
+      </div>
+
+      <div class="action-buttons">
+        <button class="btn btn-record" id="btn-run-record" type="button">
+          🟢 1. 全链路 eBPF 录制 (Record Suite)
+        </button>
+        <button class="btn btn-replay" id="btn-run-replay" type="button">
+          🔵 2. 停止 Backend 离线 eBPF 回放 (Offline Replay)
+        </button>
+        <button class="btn btn-mutation" id="btn-run-mutation" type="button">
+          🔴 3. 注入折扣 Bug 回归检测 (-fault-mutation=discount_bug)
+        </button>
+        <button class="btn btn-nondet" id="btn-run-nondet" type="button">
+          🟡 4. 非确定性时间戳对照 (-deterministic=false)
+        </button>
+      </div>
+    </section>
+
+    <!-- 2. 实验断言报告与字段级 Diff -->
+    <section class="card">
+      <div class="section-header">
+        <h2>📊 场景级回放断言报告与 Protobuf 字段级 Diff 诊断 (SC-01 ~ SC-05)</h2>
+        <span class="badge" id="report-summary-badge">等待执行</span>
+      </div>
+      <div id="assertion-report-container" class="report-grid"></div>
+    </section>
+
+    <!-- 3. 实时二进制帧流 + 24B 帧头字节解剖器 -->
+    <section class="split-layout">
+      <div class="card frame-list-card">
+        <div class="section-header">
+          <h2>📡 实时捕获二进制帧流 (Live Frame Stream)</h2>
+          <span class="sub-hint" id="frame-count-label">共 0 帧</span>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>#Seq</th>
+                <th>方向 (Dir)</th>
+                <th>OpCode 语义</th>
+                <th>ReqID</th>
+                <th>长度</th>
+                <th>CRC32</th>
+                <th>耗时</th>
+              </tr>
+            </thead>
+            <tbody id="frame-stream-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card frame-detail-card">
+        <div class="section-header">
+          <h2>🔬 24B 大端帧头解剖器 &amp; Protobuf 明文视图</h2>
+          <span class="sub-hint" id="selected-frame-title">点击左侧任意报文帧查看字节级解剖</span>
+        </div>
+
+        <div class="byte-matrix-title">24 字节定长大端帧头 (Big-Endian Wire Header Bytes 00..23)</div>
+        <div class="byte-matrix" id="header-byte-matrix"></div>
+
+        <div class="header-kv-grid" id="header-kv-grid"></div>
+
+        <div class="code-panels">
+          <div class="code-box">
+            <div class="code-title">解码后的 Protobuf 业务载荷明文 (Decoded Protobuf JSON)</div>
+            <pre id="detail-protobuf-json"></pre>
+          </div>
+          <div class="code-box">
+            <div class="code-title">原始 Wire Hex &amp; Base64 (与 Keploy 盲二进制对照)</div>
+            <pre id="detail-raw-hex"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Keploy mocks.yaml 逆向解码对照台 -->
+    <section class="card">
+      <div class="section-header">
+        <h2>🔍 Keploy 盲二进制 (mocks.yaml Base64) vs 原生协议感知逆向解码对照</h2>
+        <span class="sub-hint">直接读取仓库 keploy/keploy/flowbench-e2e/mocks.yaml 并使用项目 codec/pb 逆向还原明文</span>
+      </div>
+      <div id="keploy-compare-container" class="keploy-grid"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

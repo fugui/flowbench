@@ -20,9 +20,7 @@ cleanup() {
         wait "${BACKEND_PID}" 2>/dev/null || true
     fi
     sudo killall -9 flowbench-server flowbench-backend 2>/dev/null || true
-    if [[ -d "./keploy" ]]; then
-        sudo chown -R "$(id -u):$(id -g)" ./keploy 2>/dev/null || true
-    fi
+    sudo chown -R "$(id -u):$(id -g)" ./keploy ./bin 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 

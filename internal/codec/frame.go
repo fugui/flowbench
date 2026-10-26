@@ -173,3 +173,23 @@ func OpCodeName(op uint8) string {
 		return fmt.Sprintf("OpUnknown(0x%02X)", op)
 	}
 }
+
+// StatusName 返回可读的帧级传输状态码名称
+func StatusName(status uint8) string {
+	switch status {
+	case StatusOK:
+		return "StatusOK(0x00)"
+	case StatusBadPayload:
+		return "StatusBadPayload(0x01)"
+	case StatusUnknownOpCode:
+		return "StatusUnknownOpCode(0x02)"
+	case StatusDownstreamError:
+		return "StatusDownstreamError(0x03)"
+	case StatusInternalError:
+		return "StatusInternalError(0x04)"
+	case StatusUnsupportedVersion:
+		return "StatusUnsupportedVersion(0x05)"
+	default:
+		return fmt.Sprintf("StatusUnknown(0x%02X)", status)
+	}
+}

@@ -76,12 +76,13 @@ flowbench/
   - [x] [`02-wire-protocol-and-codec.md`](file:///home/fugui/flowbench/docs/02-design/02-wire-protocol-and-codec.md) (【协议篇】自定义 Protobuf 二进制帧协议与 TCP 拆粘包机制)
   - [x] [`03-service-orchestration.md`](file:///home/fugui/flowbench/docs/02-design/03-service-orchestration.md) (【业务篇】Server 侧业务加工编排与确定性控制设计)
   - [x] [`04-keploy-traffic-verification.md`](file:///home/fugui/flowbench/docs/02-design/04-keploy-traffic-verification.md) (【验证篇】Keploy eBPF 流量监控、录制与 Mock 回放架构)
+  - [x] [`05-ebpf-native-monitor-and-console.md`](file:///home/fugui/flowbench/docs/02-design/05-ebpf-native-monitor-and-console.md) (【演进篇】原生 `cilium/ebpf` 协议感知监控、智能回放与实时 Web 控制台架构)
 - [x] **阶段三：协议契约与任务分解** (`docs/03-api/`, `docs/04-tasks/`)
   - [x] [`01-binary-frame-spec.md`](file:///home/fugui/flowbench/docs/03-api/01-binary-frame-spec.md) (【帧协议契约】二进制帧头字段字典与字节序规范)
   - [x] [`02-protobuf-messages.md`](file:///home/fugui/flowbench/docs/03-api/02-protobuf-messages.md) (【消息契约】Protobuf 消息 Schema 与 OpCode 映射规范)
-  - [x] [`01-roadmap.md`](file:///home/fugui/flowbench/docs/04-tasks/01-roadmap.md) (【工程路线图】Milestone 1~4 划分与依赖拓扑)
-  - [x] [`02-m1-protocol-and-codec.md`](file:///home/fugui/flowbench/docs/04-tasks/02-m1-protocol-and-codec.md) ~ [`05-m4-keploy-verification.md`](file:///home/fugui/flowbench/docs/04-tasks/05-m4-keploy-verification.md) (【作战卡】各里程碑实施任务与 AC)
-- [x] **阶段四：工程实施与交付验证** ([`proto/`](file:///home/fugui/flowbench/proto/flowbench/v1/messages.proto), [`cmd/`](file:///home/fugui/flowbench/cmd/), [`internal/`](file:///home/fugui/flowbench/internal/), [`tests/`](file:///home/fugui/flowbench/tests/), [`docs/06-ops/01-keploy-verification-guide.md`](file:///home/fugui/flowbench/docs/06-ops/01-keploy-verification-guide.md))
+  - [x] [`01-roadmap.md`](file:///home/fugui/flowbench/docs/04-tasks/01-roadmap.md) (【工程路线图】Milestone 1~5 划分与依赖拓扑)
+  - [x] [`02-m1-protocol-and-codec.md`](file:///home/fugui/flowbench/docs/04-tasks/02-m1-protocol-and-codec.md) ~ [`06-m5-ebpf-monitor-and-console.md`](file:///home/fugui/flowbench/docs/04-tasks/06-m5-ebpf-monitor-and-console.md) (【作战卡】各里程碑实施任务与 AC)
+- [x] **阶段四：工程实施与交付验证** ([`proto/`](file:///home/fugui/flowbench/proto/flowbench/v1/messages.proto), [`cmd/`](file:///home/fugui/flowbench/cmd/), [`internal/ebpf/`](file:///home/fugui/flowbench/internal/ebpf/interceptor.go), [`internal/monitor/`](file:///home/fugui/flowbench/internal/monitor/engine.go), [`tests/`](file:///home/fugui/flowbench/tests/), [`docs/06-ops/01-keploy-verification-guide.md`](file:///home/fugui/flowbench/docs/06-ops/01-keploy-verification-guide.md))
 
 ---
 
