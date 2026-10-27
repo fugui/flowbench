@@ -10,19 +10,25 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/fugui/flowbench/internal/codec"
 	"github.com/fugui/flowbench/internal/ebpf"
+	"github.com/fugui/flowbench/internal/protocol/schema"
 )
 
 //go:embed web/*
 var embeddedWebFS embed.FS
 
-// DashboardStatusResponse 表示 /api/status 返回的全局控制台状态快照。
+// DashboardStatusResponse 表示 /api/status 返回的全局通用平台状态快照。
 type DashboardStatusResponse struct {
-	EBPFStatus    ebpf.RuntimeStatus   `json:"ebpf_status"`
-	RecentFrames  []CapturedFrameEvent `json:"recent_frames"`
-	RecordedCases []RecordedCaseAsset  `json:"recorded_cases"`
-	RecordedMocks []RecordedMockAsset  `json:"recorded_mocks"`
-	LastReport    *ExperimentReport    `json:"last_report,omitempty"`
+	EBPFStatus     ebpf.RuntimeStatus    `json:"ebpf_status"`
+	AttachedTarget AttachedTargetState   `json:"attached_target"`
+	FramingSpec    codec.FramingSpec     `json:"framing_spec"`
+	FramingPresets []codec.FramingSpec   `json:"framing_presets"`
+	SchemaStatus   schema.RegistryStatus `json:"schema_status"`
+	RecentFrames   []CapturedFrameEvent  `json:"recent_frames"`
+	RecordedCases  []RecordedCaseAsset   `json:"recorded_cases"`
+	RecordedMocks  []RecordedMockAsset   `json:"recorded_mocks"`
+	LastReport     *ExperimentReport     `json:"last_report,omitempty"`
 }
 
 // WebServer 封装内嵌安全 Web 控制台的 HTTP 与 SSE 服务。
@@ -48,7 +54,8 @@ func applySecurityHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; object-src 'none';")
+	w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self';")
 }
 
 // Start 启动 Web 监控控制台并返回实际监听地址。
@@ -63,6 +70,12 @@ func (ws *WebServer) Start() (string, error) {
 	mux.HandleFunc("/api/status", ws.handleStatus)
 	mux.HandleFunc("/api/events", ws.handleSSE)
 	mux.HandleFunc("/api/run", ws.handleRunExperiment)
+	mux.HandleFunc("/api/processes", ws.handleProcesses)
+	mux.HandleFunc("/api/attach", ws.handleAttachProcess)
+	mux.HandleFunc("/api/detach", ws.handleDetachProcess)
+	mux.HandleFunc("/api/protocol/spec", ws.handleProtocolSpec)
+	mux.HandleFunc("/api/protocol/schema", ws.handleProtocolSchema)
+	mux.HandleFunc("/api/mocks/update", ws.handleUpdateMock)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -116,6 +129,8 @@ func (ws *WebServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	lastRep := ws.engine.lastReport
+	attached := ws.engine.attachedTarget
+	framingSpec := ws.engine.framingSpec
 	ws.engine.mu.RUnlock()
 
 	var ebpfSt ebpf.RuntimeStatus
@@ -124,14 +139,212 @@ func (ws *WebServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := DashboardStatusResponse{
-		EBPFStatus:    ebpfSt,
-		RecentFrames:  frames,
-		RecordedCases: cases,
-		RecordedMocks: mocks,
-		LastReport:    lastRep,
+		EBPFStatus:     ebpfSt,
+		AttachedTarget: attached,
+		FramingSpec:    framingSpec,
+		FramingPresets: codec.ListPresets(),
+		SchemaStatus:   ws.engine.GetSchemaStatus(),
+		RecentFrames:   frames,
+		RecordedCases:  cases,
+		RecordedMocks:  mocks,
+		LastReport:     lastRep,
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (ws *WebServer) handleProcesses(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	query := r.URL.Query().Get("q")
+	if len(query) > 64 {
+		query = query[:64]
+	}
+	procs, err := ScanOSProcesses(query)
+	if err != nil {
+		http.Error(w, "scan processes failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"processes": procs,
+	})
+}
+
+func (ws *WebServer) handleAttachProcess(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		TargetPID   int    `json:"target_pid"`
+		ProcessName string `json:"process_name"`
+		IngressPort uint16 `json:"ingress_port"`
+		EgressIP    string `json:"egress_ip"`
+		EgressPort  uint16 `json:"egress_port"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	st, err := ws.engine.AttachProcess(req.TargetPID, req.ProcessName, req.IngressPort, req.EgressIP, req.EgressPort)
+	if err != nil {
+		http.Error(w, "attach process failed", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"attached_target": st,
+		"ebpf_status":     ws.engine.interceptor.Status(),
+	})
+}
+
+func (ws *WebServer) handleDetachProcess(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	st := ws.engine.DetachProcess()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"attached_target": st,
+		"ebpf_status":     ws.engine.interceptor.Status(),
+	})
+}
+
+func (ws *WebServer) handleProtocolSpec(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		PresetID   string             `json:"preset_id"`
+		CustomSpec *codec.FramingSpec `json:"custom_spec"`
+		Simulate   bool               `json:"simulate"`
+		SimOpCode  uint32             `json:"sim_op_code"`
+		SimSeqID   uint64             `json:"sim_seq_id"`
+		SimJSON    map[string]any     `json:"sim_json"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536)).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var activeSpec codec.FramingSpec
+	var err error
+	if req.PresetID != "" {
+		activeSpec, err = ws.engine.SelectPresetFramingSpec(req.PresetID)
+	} else if req.CustomSpec != nil {
+		activeSpec, err = ws.engine.SetFramingSpec(*req.CustomSpec)
+	} else {
+		activeSpec = ws.engine.GetFramingSpec()
+	}
+	if err != nil {
+		http.Error(w, "invalid framing specification", http.StatusBadRequest)
+		return
+	}
+
+	var simFrame *CapturedFrameEvent
+	if req.Simulate {
+		op := req.SimOpCode
+		if op == 0 {
+			op = 0x11
+		}
+		seq := req.SimSeqID
+		if seq == 0 {
+			seq = 90001
+		}
+		ev, simErr := ws.engine.SimulateDissectFrame(op, seq, req.SimJSON)
+		if simErr == nil {
+			simFrame = &ev
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"framing_spec":    activeSpec,
+		"simulated_frame": simFrame,
+	})
+}
+
+func (ws *WebServer) handleProtocolSchema(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Action      string                      `json:"action"` // "import" | "clear" | "restore_default"
+		FileName    string                      `json:"file_name"`
+		ProtoSource string                      `json:"proto_source"`
+		Bindings    []schema.OpCodeRouteBinding `json:"bindings"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 512*1024)).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var status schema.RegistryStatus
+	var rehydrated int
+	var err error
+
+	switch req.Action {
+	case "clear":
+		status, rehydrated = ws.engine.ClearProtoSchema()
+	case "restore_default":
+		status, rehydrated, err = ws.engine.ImportProtoSchema("messages.proto", schema.DefaultSandboxProtoSource, schema.DefaultSandboxBindings())
+	default:
+		if req.ProtoSource == "" {
+			http.Error(w, "proto_source is required", http.StatusBadRequest)
+			return
+		}
+		status, rehydrated, err = ws.engine.ImportProtoSchema(req.FileName, req.ProtoSource, req.Bindings)
+	}
+	if err != nil {
+		http.Error(w, "parse proto schema failed", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"schema_status":     status,
+		"rehydrated_frames": rehydrated,
+	})
+}
+
+func (ws *WebServer) handleUpdateMock(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		MockID       string         `json:"mock_id"`
+		ResponseJSON map[string]any `json:"response_json"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128*1024)).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.MockID == "" || len(req.ResponseJSON) == 0 {
+		http.Error(w, "mock_id and response_json are required", http.StatusBadRequest)
+		return
+	}
+	updated, err := ws.engine.UpdateMockResponseJSON(req.MockID, req.ResponseJSON)
+	if err != nil {
+		http.Error(w, "update mock failed", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"updated_mock": updated,
+	})
 }
 
 func (ws *WebServer) handleSSE(w http.ResponseWriter, r *http.Request) {

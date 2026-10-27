@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>flowbench | cilium/ebpf 原生二进制协议监控与回放控制台</title>
+  <title>flowbench | 通用私有 Protobuf 协议监听与自愈回放工具平台</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <span class="brand-badge">eBPF + Protobuf</span>
-      <h1>flowbench 原生协议感知监控与回放控制台</h1>
+      <span class="brand-badge">Universal eBPF + dynamicpb</span>
+      <h1>flowbench 通用私有 Protobuf 协议监听与自愈回放工具平台</h1>
     </div>
     <div class="ebpf-metrics" id="ebpf-metrics-bar">
       <div class="metric-pill">
@@ -22,12 +22,16 @@
         <span class="value" id="metric-prog-id">-</span>
       </div>
       <div class="metric-pill">
-        <span class="label">Ingress 劫持 (9100)</span>
-        <span class="value" id="metric-ingress-cnt">0</span>
+        <span class="label">当前监听 TargetPID</span>
+        <span class="value" id="metric-target-pid">Sandbox (0)</span>
       </div>
       <div class="metric-pill">
-        <span class="label">Egress 劫持 (9200)</span>
-        <span class="value" id="metric-egress-cnt">0</span>
+        <span class="label">当前协议 DSL</span>
+        <span class="value" id="metric-proto-name">flowbench-v1</span>
+      </div>
+      <div class="metric-pill">
+        <span class="label">Ingress / Egress 劫持</span>
+        <span class="value" id="metric-intercept-cnt">0 / 0</span>
       </div>
       <div class="metric-pill">
         <span class="label">SSE 实时流</span>
@@ -37,10 +41,89 @@
   </header>
 
   <main class="container">
-    <!-- 1. 实时拓扑与一键实验操控台 -->
+    <!-- 平台三大通用基石工作台：1. OS 进程中心 | 2. 协议 DSL 与 .proto 动态注册表 | 3. 在线 Mock JSON 编辑器 -->
+    <section class="platform-grid">
+      <!-- WEB-01: OS 级进程监控中心 -->
+      <div class="card">
+        <div class="section-header">
+          <h2>🔍 1. OS 级进程监控中心 (/proc Scanner &amp; TargetPID Attach)</h2>
+          <span class="sub-hint" id="attach-status-badge">当前：内置沙箱演练模式</span>
+        </div>
+        <div class="toolbar-row">
+          <input type="text" id="proc-search-input" class="input-ctrl" placeholder="按进程名 / PID / 端口过滤...">
+          <button type="button" class="btn btn-sm" id="btn-refresh-procs">🔄 扫描 /proc</button>
+          <button type="button" class="btn btn-sm btn-danger" id="btn-detach-proc">⏹ Detach 恢复默认</button>
+        </div>
+        <div class="attach-form-row">
+          <input type="number" id="input-target-pid" class="input-ctrl input-xs" placeholder="TargetPID" value="0">
+          <input type="number" id="input-ingress-port" class="input-ctrl input-xs" placeholder="入站端口" value="9100">
+          <input type="text" id="input-egress-ip" class="input-ctrl input-xs" placeholder="下游 IP" value="127.0.0.1">
+          <input type="number" id="input-egress-port" class="input-ctrl input-xs" placeholder="下游端口" value="9200">
+          <button type="button" class="btn btn-sm btn-primary" id="btn-attach-custom">🎯 挂载进程规则</button>
+        </div>
+        <div class="table-scroll proc-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>PID</th>
+                <th>进程名</th>
+                <th>监听端口 (Ingress)</th>
+                <th>活跃出站 (Egress)</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="proc-list-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- WEB-02: 协议帧头 DSL 与 .proto 动态反射工作台 -->
+      <div class="card">
+        <div class="section-header">
+          <h2>📜 2. 协议帧头 DSL 与 .proto 动态 Schema 注册中心</h2>
+          <span class="sub-hint" id="schema-status-badge">Schema 已加载</span>
+        </div>
+        <div class="toolbar-row">
+          <select id="select-framing-preset" class="input-ctrl">
+            <option value="flowbench-v1">flowbench-v1 (24B 大端默认头 | IEEE CRC32)</option>
+            <option value="generic-financial-v2">generic-financial-v2 (20B 金融网关头 | 全帧 CRC32C)</option>
+            <option value="gaming-sync-v1">gaming-sync-v1 (12B 小端游戏帧 | Adler32)</option>
+          </select>
+          <button type="button" class="btn btn-sm btn-primary" id="btn-apply-preset">⚡ 切换 DSL 并模拟拆帧</button>
+        </div>
+        <div class="spec-summary-bar" id="framing-spec-summary"></div>
+        <div class="code-title">在线导入业务 .proto 源文件（纯 Go 解析 + dynamicpb 动态反射，零 protoc 依赖）</div>
+        <textarea id="textarea-proto-source" class="code-textarea" rows="5"></textarea>
+        <div class="toolbar-row">
+          <button type="button" class="btn btn-sm btn-primary" id="btn-import-proto">📥 编译导入 .proto 并重激活历史帧</button>
+          <button type="button" class="btn btn-sm btn-warn" id="btn-clear-proto">🧪 切换无 Schema (Tag 树降级)</button>
+          <button type="button" class="btn btn-sm" id="btn-restore-proto">♻️ 恢复沙箱默认 .proto</button>
+        </div>
+      </div>
+
+      <!-- WEB-04: 可视化 Mock 规则与响应 JSON 在线编辑器 -->
+      <div class="card">
+        <div class="section-header">
+          <h2>🎭 3. 智能 Mock 资产库与 dynamicpb 响应重编码器</h2>
+          <span class="sub-hint" id="mock-edit-status">修改 JSON 后自动重算二进制帧与 Checksum</span>
+        </div>
+        <div class="toolbar-row">
+          <select id="select-mock-asset" class="input-ctrl">
+            <option value="">-- 先运行录制以加载出站二进制 Mock 资产 --</option>
+          </select>
+        </div>
+        <div class="code-title">出站 Mock 响应 Protobuf 明文 JSON（支持在线篡改字段并动态重编码二进制帧）</div>
+        <textarea id="textarea-mock-json" class="code-textarea" rows="6" placeholder="请先执行全链路录制，然后选择上方一条 Mock 资产进行编辑..."></textarea>
+        <div class="toolbar-row">
+          <button type="button" class="btn btn-sm btn-primary" id="btn-save-mock">💾 保存 JSON 并重算二进制帧 Checksum</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- WEB-05: 内置参考沙箱演练场与实时拓扑 -->
     <section class="card control-panel">
       <div class="section-header">
-        <h2>⚡ 三级微服务 + cilium/ebpf (cgroup/connect4) 实时拓扑与实验操控台</h2>
+        <h2>🧪 内置参考沙箱演练场 (Built-in Playground: 三级微服务 + cilium/ebpf cgroup/connect4)</h2>
         <span class="sub-hint" id="last-action-hint">点击下方按钮一键执行全链路录制、无 Backend 离线回放或突变回归拦截</span>
       </div>
 
@@ -50,7 +133,7 @@
           <div class="node-sub">SC-01 ~ SC-05</div>
         </div>
         <div class="topo-arrow">
-          <span class="arrow-tag">24B + Protobuf</span>
+          <span class="arrow-tag" id="topo-wire-tag">24B + Protobuf</span>
           <span class="arrow-line">───►</span>
         </div>
         <div class="topo-node hook-node">
@@ -58,27 +141,27 @@
           <div class="node-sub" id="topo-ingress-desc">connect4(127.0.0.1:9100)</div>
         </div>
         <div class="topo-arrow">
-          <span class="arrow-tag">协议感知拆帧</span>
+          <span class="arrow-tag">DynamicCodec 拆帧</span>
           <span class="arrow-line">───►</span>
         </div>
         <div class="topo-node sut-node">
-          <div class="node-title">Server 被测服务 (SUT)</div>
-          <div class="node-sub" id="topo-server-desc">127.0.0.1:9100 (二次加工)</div>
+          <div class="node-title">被测目标进程 (SUT)</div>
+          <div class="node-sub" id="topo-server-desc">127.0.0.1:9100 (TargetPID=0)</div>
         </div>
         <div class="topo-arrow">
-          <span class="arrow-tag">connect4(:9200)</span>
+          <span class="arrow-tag" id="topo-egress-arrow">connect4(:9200)</span>
           <span class="arrow-line">───►</span>
         </div>
         <div class="topo-node hook-node">
           <div class="node-title">eBPF Egress Mock 引擎</div>
-          <div class="node-sub" id="topo-egress-desc">语义匹配 + CRC32 自愈</div>
+          <div class="node-sub" id="topo-egress-desc">dynamicpb 匹配 + Checksum 自愈</div>
         </div>
         <div class="topo-arrow">
           <span class="arrow-tag" id="topo-backend-link">录制透传 / 回放切断</span>
           <span class="arrow-line">───►</span>
         </div>
         <div class="topo-node" id="topo-backend-node">
-          <div class="node-title">Backend 下游服务</div>
+          <div class="node-title">下游依赖服务 (Downstream)</div>
           <div class="node-sub" id="topo-backend-status">127.0.0.1:9200 (待命)</div>
         </div>
       </div>
@@ -88,7 +171,7 @@
           🟢 1. 全链路 eBPF 录制 (Record Suite)
         </button>
         <button class="btn btn-replay" id="btn-run-replay" type="button">
-          🔵 2. 停止 Backend 离线 eBPF 回放 (Offline Replay)
+          🔵 2. 停止下游离线 eBPF 回放 (Offline Replay)
         </button>
         <button class="btn btn-mutation" id="btn-run-mutation" type="button">
           🔴 3. 注入折扣 Bug 回归检测 (-fault-mutation=discount_bug)
@@ -99,16 +182,16 @@
       </div>
     </section>
 
-    <!-- 2. 实验断言报告与字段级 Diff -->
+    <!-- 场景级回放断言报告与 Protobuf 字段级 Diff -->
     <section class="card">
       <div class="section-header">
-        <h2>📊 场景级回放断言报告与 Protobuf 字段级 Diff 诊断 (SC-01 ~ SC-05)</h2>
+        <h2>📊 场景级回放断言报告与 dynamicpb 字段级 Diff 诊断 (SC-01 ~ SC-05)</h2>
         <span class="badge" id="report-summary-badge">等待执行</span>
       </div>
       <div id="assertion-report-container" class="report-grid"></div>
     </section>
 
-    <!-- 3. 实时二进制帧流 + 24B 帧头字节解剖器 -->
+    <!-- WEB-03: 实时二进制帧流 + 动态帧头字节解剖器 -->
     <section class="split-layout">
       <div class="card frame-list-card">
         <div class="section-header">
@@ -122,10 +205,10 @@
                 <th>#Seq</th>
                 <th>方向 (Dir)</th>
                 <th>OpCode 语义</th>
-                <th>ReqID</th>
+                <th>SeqID</th>
                 <th>长度</th>
-                <th>CRC32</th>
-                <th>耗时</th>
+                <th>Checksum</th>
+                <th>Schema</th>
               </tr>
             </thead>
             <tbody id="frame-stream-tbody"></tbody>
@@ -135,18 +218,18 @@
 
       <div class="card frame-detail-card">
         <div class="section-header">
-          <h2>🔬 24B 大端帧头解剖器 &amp; Protobuf 明文视图</h2>
+          <h2>🔬 动态二进制帧头解剖器 &amp; dynamicpb 业务明文 / WireTag 视图</h2>
           <span class="sub-hint" id="selected-frame-title">点击左侧任意报文帧查看字节级解剖</span>
         </div>
 
-        <div class="byte-matrix-title">24 字节定长大端帧头 (Big-Endian Wire Header Bytes 00..23)</div>
+        <div class="byte-matrix-title" id="byte-matrix-caption">二进制帧头字节色块解剖图 (Wire Header Bytes)</div>
         <div class="byte-matrix" id="header-byte-matrix"></div>
 
         <div class="header-kv-grid" id="header-kv-grid"></div>
 
         <div class="code-panels">
           <div class="code-box">
-            <div class="code-title">解码后的 Protobuf 业务载荷明文 (Decoded Protobuf JSON)</div>
+            <div class="code-title">dynamicpb 反序列化业务载荷 JSON（或无 Schema Wire Tag 降级树）</div>
             <pre id="detail-protobuf-json"></pre>
           </div>
           <div class="code-box">

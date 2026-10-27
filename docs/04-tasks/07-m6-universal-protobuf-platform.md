@@ -34,3 +34,17 @@
 - **AC-M6-02 (零依赖 `.proto` 导入、`dynamicpb` 反射与无 Schema 降级重激活)**：`go test -v -race ./internal/protocol/...` 100% 通过，验证不依赖外部 `protoc` 即可在线解析自定义 `.proto` 文本，完成 `(OpCode, Direction)` 路由与 JSON <-> Binary 互转；验证先在无 Schema 下抓包输出 Tag 树，随后导入 `.proto` 即刻将历史报文原地刷新为业务明文 JSON。
 - **AC-M6-03 (`/proc` 进程探测与 `TargetPID` 内核精准过滤)**：验证 `/proc` 探测器准确识别正在运行的监听进程及端口；在内核 eBPF 模式下设置 `TargetPID` 与自定义下游 IP:Port，验证仅 `TargetPID` 发起的连接被精准劫持，非目标进程 100% 豁免。
 - **AC-M6-04 (Web 工作台 API 闭环与零回归)**：全量测试 `go test -v -race ./...` 与 `./scripts/verify-e2e.sh` 100% 通过；Web 前端静态安全检查零 `innerHTML` / `alert` / `console.log`。
+
+---
+
+## 4. Verification Plan
+
+### Automated Security Check
+
+- **Security Scanner**: Run a scan on all newly created files to identify common
+  vulnerabilities (e.g., XSS, SQL injection). If findings are detected, auto-apply
+  the fix and document the results.
+- **Security Audit**: Audit the new code for design-level security issues (input
+  validation, secrets handling, auth checks). Document findings and remediations
+  in the `walkthrough.md` artifact using the `generate_security_audit_report`
+  skill.

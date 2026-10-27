@@ -14,15 +14,17 @@ import (
 
 	"github.com/fugui/flowbench/internal/codec"
 	"github.com/fugui/flowbench/internal/protocol"
+	"github.com/fugui/flowbench/internal/protocol/schema"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
-// DecodedHeaderInfo 表示 24 字节自定义大端帧头的结构化拆解详情。
+// DecodedHeaderInfo 表示二进制帧头的结构化拆解详情（同时兼容 24B 默认帧头与自定义 FramingSpec DSL）。
 type DecodedHeaderInfo struct {
+	ProtocolName     string `json:"protocol_name,omitempty"`
 	MagicHex         string `json:"magic_hex"`
 	Version          uint8  `json:"version"`
-	OpCode           uint8  `json:"op_code"`
+	OpCode           uint32 `json:"op_code"`
 	OpCodeHex        string `json:"op_code_hex"`
 	OpName           string `json:"op_name"`
 	Flags            uint8  `json:"flags"`
@@ -34,6 +36,7 @@ type DecodedHeaderInfo struct {
 	PayloadLength    uint32 `json:"payload_length"`
 	CRC32Hex         string `json:"crc32_hex"`
 	ComputedCRC32Hex string `json:"computed_crc32_hex"`
+	SchemaDecoded    bool   `json:"schema_decoded"`
 }
 
 // CapturedFrameEvent 表示监控器捕获并深度解剖的一帧自定义二进制报文事件。
@@ -42,11 +45,11 @@ type CapturedFrameEvent struct {
 	Timestamp      string            `json:"timestamp"`
 	Direction      string            `json:"direction"`        // INGRESS_REQ, INGRESS_RESP, EGRESS_REQ, EGRESS_RESP, EGRESS_MOCK_RESP
 	Mode           string            `json:"mode"`             // RECORD, REPLAY
-	Header         DecodedHeaderInfo `json:"header"`           // 24B 帧头字段字典
-	HeaderBytesHex []string          `json:"header_bytes_hex"` // 24 个独立字节的十六进制切片
-	CRC32Valid     bool              `json:"crc32_valid"`      // CRC32 校验是否通过
-	ProtobufJSON   map[string]any    `json:"protobuf_json"`    // 反序列化后的 Protobuf 业务字段明文
-	RawWireHex     string            `json:"raw_wire_hex"`     // 24B+Payload 完整十六进制字节流
+	Header         DecodedHeaderInfo `json:"header"`           // 帧头字段字典
+	HeaderBytesHex []string          `json:"header_bytes_hex"` // 帧头独立字节十六进制切片
+	CRC32Valid     bool              `json:"crc32_valid"`      // 校验和是否通过
+	ProtobufJSON   map[string]any    `json:"protobuf_json"`    // 反序列化后的 Protobuf 业务字段明文或无 Schema Tag 树
+	RawWireHex     string            `json:"raw_wire_hex"`     // Header+Payload 完整十六进制字节流
 	RawBase64      string            `json:"raw_base64"`       // 完整帧 Base64 编码字符串
 	LatencyMs      float64           `json:"latency_ms"`
 }
@@ -58,8 +61,20 @@ type FieldDiff struct {
 	Actual   string `json:"actual"`
 }
 
-// InspectFrame 将原始二进制帧解剖为包含 24B 帧头明细、CRC32 校验状态与 Protobuf 明文 JSON 的结构化对象。
+func inferSchemaDirection(direction string) schema.TrafficDirection {
+	if strings.HasSuffix(direction, "_RESP") {
+		return schema.DirectionResp
+	}
+	return schema.DirectionReq
+}
+
+// InspectFrame 将原始 24B 二进制帧解剖为结构化对象。
 func InspectFrame(f *codec.Frame, direction, mode string, seqID uint64, latencyMs float64) CapturedFrameEvent {
+	return InspectFrameWithRegistry(f, nil, direction, mode, seqID, latencyMs)
+}
+
+// InspectFrameWithRegistry 使用动态 Schema 注册表（或静态回退）将二进制帧解剖为结构化事件。
+func InspectFrameWithRegistry(f *codec.Frame, reg *schema.Registry, direction, mode string, seqID uint64, latencyMs float64) CapturedFrameEvent {
 	rawBytes, err := codec.EncodeFrameBytes(f)
 	if err != nil {
 		rawBytes = make([]byte, codec.HeaderSize)
@@ -71,7 +86,21 @@ func InspectFrame(f *codec.Frame, direction, mode string, seqID uint64, latencyM
 	}
 
 	computedCRC := crc32.ChecksumIEEE(f.Payload)
-	pbMap := decodeProtobufToMap(f.Header.OpCode, f.Payload)
+	var pbMap map[string]any
+	opName := codec.OpCodeName(f.Header.OpCode)
+	schemaDecoded := true
+
+	if reg != nil {
+		dir := inferSchemaDirection(direction)
+		decoded, resolvedName, isDecoded := reg.DecodePayload(uint32(f.Header.OpCode), dir, f.Payload)
+		pbMap = decoded
+		schemaDecoded = isDecoded
+		if resolvedName != "" {
+			opName = resolvedName
+		}
+	} else {
+		pbMap = decodeProtobufToMap(f.Header.OpCode, f.Payload)
+	}
 
 	return CapturedFrameEvent{
 		SeqID:     seqID,
@@ -79,11 +108,12 @@ func InspectFrame(f *codec.Frame, direction, mode string, seqID uint64, latencyM
 		Direction: direction,
 		Mode:      mode,
 		Header: DecodedHeaderInfo{
+			ProtocolName:     "FlowBench v1 (24B Default)",
 			MagicHex:         fmt.Sprintf("0x%04X", f.Header.Magic),
 			Version:          f.Header.Version,
-			OpCode:           f.Header.OpCode,
+			OpCode:           uint32(f.Header.OpCode),
 			OpCodeHex:        fmt.Sprintf("0x%02X", f.Header.OpCode),
-			OpName:           codec.OpCodeName(f.Header.OpCode),
+			OpName:           opName,
 			Flags:            f.Header.Flags,
 			FlagsHex:         fmt.Sprintf("0x%02X", f.Header.Flags),
 			Status:           f.Header.Status,
@@ -93,9 +123,59 @@ func InspectFrame(f *codec.Frame, direction, mode string, seqID uint64, latencyM
 			PayloadLength:    f.Header.PayloadLen,
 			CRC32Hex:         fmt.Sprintf("0x%08X", f.Header.CRC32),
 			ComputedCRC32Hex: fmt.Sprintf("0x%08X", computedCRC),
+			SchemaDecoded:    schemaDecoded,
 		},
 		HeaderBytesHex: headerHexSlice,
 		CRC32Valid:     computedCRC == f.Header.CRC32,
+		ProtobufJSON:   pbMap,
+		RawWireHex:     strings.ToUpper(hex.EncodeToString(rawBytes)),
+		RawBase64:      base64.StdEncoding.EncodeToString(rawBytes),
+		LatencyMs:      latencyMs,
+	}
+}
+
+// InspectDynamicFrame 将按 FramingSpec DSL 拆解出的 DynamicFrame 结合动态 Schema 注册表转换为 CapturedFrameEvent。
+func InspectDynamicFrame(df *codec.DynamicFrame, reg *schema.Registry, direction, mode string, seqID uint64, latencyMs float64) CapturedFrameEvent {
+	rawBytes := codec.EncodeDynamicFrameBytes(df)
+	headerHexSlice := make([]string, len(df.HeaderRaw))
+	for i := 0; i < len(df.HeaderRaw); i++ {
+		headerHexSlice[i] = fmt.Sprintf("%02X", df.HeaderRaw[i])
+	}
+
+	dir := inferSchemaDirection(direction)
+	var pbMap map[string]any
+	opName := fmt.Sprintf("OpCode(0x%02X)", df.OpCode)
+	schemaDecoded := false
+
+	if reg != nil {
+		pbMap, opName, schemaDecoded = reg.DecodePayload(df.OpCode, dir, df.Payload)
+	} else {
+		pbMap = schema.DecodeWireTagsFallback(df.Payload)
+	}
+
+	expectedChk := codec.ComputeDynamicChecksum(df.Spec, df.HeaderRaw, df.Payload)
+
+	return CapturedFrameEvent{
+		SeqID:     seqID,
+		Timestamp: time.Now().Format("15:04:05.000"),
+		Direction: direction,
+		Mode:      mode,
+		Header: DecodedHeaderInfo{
+			ProtocolName:     df.Spec.ProtocolName,
+			MagicHex:         df.MagicHex,
+			Version:          1,
+			OpCode:           df.OpCode,
+			OpCodeHex:        fmt.Sprintf("0x%02X", df.OpCode),
+			OpName:           opName,
+			StatusName:       "StatusOK(0x00)",
+			RequestID:        df.SeqID,
+			PayloadLength:    df.PayloadLen,
+			CRC32Hex:         fmt.Sprintf("0x%08X", df.Checksum),
+			ComputedCRC32Hex: fmt.Sprintf("0x%08X", expectedChk),
+			SchemaDecoded:    schemaDecoded,
+		},
+		HeaderBytesHex: headerHexSlice,
+		CRC32Valid:     df.ChecksumValid,
 		ProtobufJSON:   pbMap,
 		RawWireHex:     strings.ToUpper(hex.EncodeToString(rawBytes)),
 		RawBase64:      base64.StdEncoding.EncodeToString(rawBytes),

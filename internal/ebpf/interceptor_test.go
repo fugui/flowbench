@@ -20,6 +20,29 @@ func TestHtons(t *testing.T) {
 	}
 }
 
+func TestIPv4ToNetOrderUint32AndBuildBPFState(t *testing.T) {
+	if got := IPv4ToNetOrderUint32("127.0.0.1"); got != 0x0100007f {
+		t.Fatalf("expected 127.0.0.1 -> 0x0100007f, got 0x%08x", got)
+	}
+	// 10.0.1.20 = [0x0A, 0x00, 0x01, 0x14] -> LittleEndian uint32 = 0x1401000A
+	if got := IPv4ToNetOrderUint32("10.0.1.20"); got != 0x1401000a {
+		t.Fatalf("expected 10.0.1.20 -> 0x1401000a, got 0x%08x", got)
+	}
+
+	st := buildBPFState(Config{
+		MonitorPID:      1001,
+		TargetPID:       28412,
+		EnableIngress:   true,
+		EnableEgress:    true,
+		IngressOrigPort: 9100,
+		EgressOrigIP:    "10.0.1.20",
+		EgressOrigPort:  8000,
+	})
+	if st.TargetPID != 28412 || st.EgressOrigIPNet != 0x1401000a {
+		t.Fatalf("unexpected BPFState: %+v", st)
+	}
+}
+
 // TestKernelCgroupConnect4RedirectionAndSelfBypass 验证 cilium/ebpf cgroup/connect4 在真实内核中的端口改写与防回环豁免。
 func TestKernelCgroupConnect4RedirectionAndSelfBypass(t *testing.T) {
 	if os.Geteuid() != 0 {
@@ -49,10 +72,12 @@ func TestKernelCgroupConnect4RedirectionAndSelfBypass(t *testing.T) {
 
 	const deadTargetPort uint16 = 29299
 
-	// 1. 先测试当 MonitorPID 设置为虚拟 PID (999999) 时，当前测试进程连接不存在的 127.0.0.1:29299 会被内核透明重定向到 proxyPort
+	// 1. 测试当 TargetPID 设置为当前进程 PID 时，当前进程连接虚拟下游 IP 10.0.1.20:29299 被跨 IP 重定向至本地 127.0.0.1:proxyPort
 	ic, err := NewInterceptor(Config{
-		MonitorPID:      999999, // 非当前进程 PID，因此当前进程会被拦截重定向
+		MonitorPID:      999999,
+		TargetPID:       os.Getpid(),
 		EnableEgress:    true,
+		EgressOrigIP:    "10.0.1.20",
 		EgressOrigPort:  deadTargetPort,
 		EgressProxyPort: proxyPort,
 	})
@@ -65,9 +90,9 @@ func TestKernelCgroupConnect4RedirectionAndSelfBypass(t *testing.T) {
 		}
 	}()
 
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", deadTargetPort), 2*time.Second)
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("10.0.1.20:%d", deadTargetPort), 2*time.Second)
 	if err != nil {
-		t.Fatalf("expected dial to dead port %d to be redirected by eBPF to %d, got err: %v", deadTargetPort, proxyPort, err)
+		t.Fatalf("expected dial to 10.0.1.20:%d to be redirected by eBPF to 127.0.0.1:%d, got err: %v", deadTargetPort, proxyPort, err)
 	}
 	data, err := io.ReadAll(conn)
 	_ = conn.Close()
@@ -82,6 +107,6 @@ func TestKernelCgroupConnect4RedirectionAndSelfBypass(t *testing.T) {
 	if !st.KernelActive || st.StatEgressRedirected == 0 {
 		t.Fatalf("expected KernelActive=true and StatEgressRedirected > 0, got %+v", st)
 	}
-	t.Logf("cilium/ebpf kernel status after interception: progID=%d, egressRedirected=%d, totalConnects=%d",
-		st.ProgramID, st.StatEgressRedirected, st.StatTotalConnects)
+	t.Logf("cilium/ebpf kernel status after interception: progID=%d, targetPID=%d, egressRedirected=%d",
+		st.ProgramID, st.TargetPID, st.StatEgressRedirected)
 }

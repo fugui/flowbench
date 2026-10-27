@@ -19,6 +19,7 @@ import (
 	"github.com/fugui/flowbench/internal/ebpf"
 	"github.com/fugui/flowbench/internal/protocol"
 	"github.com/fugui/flowbench/internal/protocol/pb"
+	"github.com/fugui/flowbench/internal/protocol/schema"
 	"github.com/fugui/flowbench/internal/server"
 	"github.com/fugui/flowbench/internal/transport"
 )
@@ -94,7 +95,7 @@ type PersistedAssetBundle struct {
 	EgressMocks []RecordedMockAsset `json:"egress_binary_mocks"`
 }
 
-// Engine 封装 cilium/ebpf 探针、协议感知代理、录制回放资产库与 SSE 实时事件广播。
+// Engine 封装 cilium/ebpf 探针、通用动态协议 DSL、动态 Schema 注册表、录制回放资产库与 SSE 实时事件广播。
 type Engine struct {
 	mu              sync.RWMutex
 	seqCounter      atomic.Uint64
@@ -102,6 +103,10 @@ type Engine struct {
 	assetFilePath   string
 	virtualSrvPort  uint16
 	virtualBackPort uint16
+
+	framingSpec    codec.FramingSpec
+	schemaReg      *schema.Registry
+	attachedTarget AttachedTargetState
 
 	ingressCases    []RecordedCaseAsset
 	egressMocks     map[string]*RecordedMockAsset // key: SemanticSignature
@@ -136,8 +141,18 @@ func NewEngine(cfg EngineConfig) *Engine {
 		assetFilePath:   cfg.AssetFilePath,
 		virtualSrvPort:  cfg.VirtualSrvPort,
 		virtualBackPort: cfg.VirtualBackPort,
-		egressMocks:     make(map[string]*RecordedMockAsset),
-		subscribers:     make(map[chan CapturedFrameEvent]struct{}),
+		framingSpec:     codec.PresetFlowBenchV1(),
+		schemaReg:       schema.NewDefaultSandboxRegistry(),
+		attachedTarget: AttachedTargetState{
+			Attached:        false,
+			TargetPID:       0,
+			ProcessName:     "flowbench-sandbox (Built-in Playground)",
+			IngressOrigPort: cfg.VirtualSrvPort,
+			EgressOrigIP:    "127.0.0.1",
+			EgressOrigPort:  cfg.VirtualBackPort,
+		},
+		egressMocks: make(map[string]*RecordedMockAsset),
+		subscribers: make(map[chan CapturedFrameEvent]struct{}),
 	}
 
 	// 尝试挂载内核 cilium/ebpf cgroup/connect4 探针 (MonitorPID 设为 999999999 以使本进程内的 Client/Server 调用同样经受内核 eBPF 重定向)
@@ -147,6 +162,7 @@ func NewEngine(cfg EngineConfig) *Engine {
 		IngressOrigPort:  cfg.VirtualSrvPort,
 		IngressProxyPort: cfg.VirtualSrvPort,
 		EnableEgress:     false,
+		EgressOrigIP:     "127.0.0.1",
 		EgressOrigPort:   cfg.VirtualBackPort,
 		EgressProxyPort:  cfg.VirtualBackPort,
 	})
@@ -180,7 +196,7 @@ func (e *Engine) Unsubscribe(ch chan CapturedFrameEvent) {
 
 func (e *Engine) publishFrame(f *codec.Frame, direction, mode string, latencyMs float64) CapturedFrameEvent {
 	seq := e.seqCounter.Add(1)
-	ev := InspectFrame(f, direction, mode, seq, latencyMs)
+	ev := InspectFrameWithRegistry(f, e.schemaReg, direction, mode, seq, latencyMs)
 
 	e.mu.Lock()
 	e.recentFrames = append(e.recentFrames, ev)
