@@ -7,6 +7,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+INVOKING_USER="${SUDO_USER:-${USER:-$(id -un)}}"
+INVOKING_HOME="$(getent passwd "$INVOKING_USER" | cut -d: -f6 || echo "/home/$INVOKING_USER")"
+export PATH="${INVOKING_HOME}/.local/go/bin:${INVOKING_HOME}/go/bin:/usr/local/go/bin:${PATH}"
+
 BACKEND_ADDR="127.0.0.1:19200"
 SERVER_ADDR="127.0.0.1:19100"
 BACKEND_PID=""
