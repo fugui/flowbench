@@ -24,8 +24,9 @@ flowchart LR
     M4["Milestone 4: 离线回放与自愈断言验证<br/>(tests/replay_verify_test.go / data)<br/>进程内透明代理录制 + 无 Backend 离线 Mock 回放"]
     M5["Milestone 5: 原生 cilium/ebpf 监控与 Web 控制台<br/>(internal/ebpf / internal/monitor / cmd/monitor)<br/>内核透明劫持 + 24B/Protobuf解剖 + 实时控制台"]
     M6["Milestone 6: 通用私有 Protobuf 协议平台演进<br/>(FramingSpec DSL / 纯 Go .proto 反射 / /proc 探测 / TargetPID 过滤)"]
+    M7["Milestone 7: 多下游 Backend 路由劫持与 Mock 隔离<br/>(eBPF 多目标 HASH / 动态代理池 / (Backend, OpCode) 联合 Mock / Web 多后端)"]
 
-    M1 ==> M2 ==> M3 ==> M4 ==> M5 ==> M6
+    M1 ==> M2 ==> M3 ==> M4 ==> M5 ==> M6 ==> M7
 ```
 
 ---
@@ -40,6 +41,7 @@ flowchart LR
 | **M4：离线回放与自愈断言验证** | `tests/replay_verify_test.go` | `tests/replay_verify_test.go`、`data/native-ebpf-assets.json` | 进程内透明录制、出站 Mock 劫持、无 Backend 离线回放与回归突变精确拦截 |
 | **M5：原生 eBPF 协议感知监控** | [`06-m5-ebpf-monitor-and-console.md`](file:///home/fugui/flowbench/docs/04-tasks/06-m5-ebpf-monitor-and-console.md) | `internal/ebpf/`、`internal/monitor/`、`cmd/monitor/`、`scripts/start-monitor.sh` | 内核态 `cgroup/connect4` 透明劫持、动态 RequestID 自愈、字段级 Diff 诊断与安全 Web 控制台 |
 | **M6：通用私有 Protobuf 协议平台** | [`07-m6-universal-protobuf-platform.md`](file:///home/fugui/flowbench/docs/04-tasks/07-m6-universal-protobuf-platform.md) | `internal/codec/dynamic.go`、`internal/protocol/schema/`、`internal/monitor/proc.go`、`internal/ebpf/`、`internal/monitor/` | 声明式 `FramingSpec` DSL 拆帧、零依赖 `.proto` 动态反射、`/proc` 进程扫描与 `TargetPID` 精准拦截 |
+| **M7：多下游 Backend 路由劫持与 Mock 隔离** | [`08-m7-multi-backend-routing.md`](file:///home/fugui/flowbench/docs/04-tasks/08-m7-multi-backend-routing.md) | `internal/ebpf/`、`internal/monitor/platform.go`、`internal/monitor/engine.go`、`internal/monitor/web/`、`tests/multi_backend_test.go` | eBPF 多目标 HASH 重定向、动态代理池、`(TargetBackend, OpCode)` 联合索引隔离与同机多端口/跨机多后端集成测试 |
 
 ---
 
