@@ -23,8 +23,9 @@ flowchart LR
     M3["Milestone 3: Client 驱动与全链路 E2E<br/>(cmd/client / tests/e2e_test.go / scripts)<br/>6 大场景拨测 + 突变检测 + 确定性验证"]
     M4["Milestone 4: 离线回放与自愈断言验证<br/>(tests/replay_verify_test.go / data)<br/>进程内透明代理录制 + 无 Backend 离线 Mock 回放"]
     M5["Milestone 5: 原生 cilium/ebpf 监控与 Web 控制台<br/>(internal/ebpf / internal/monitor / cmd/monitor)<br/>内核透明劫持 + 24B/Protobuf解剖 + 实时控制台"]
+    M6["Milestone 6: 通用私有 Protobuf 协议平台演进<br/>(FramingSpec DSL / 纯 Go .proto 反射 / /proc 探测 / TargetPID 过滤)"]
 
-    M1 ==> M2 ==> M3 ==> M4 ==> M5
+    M1 ==> M2 ==> M3 ==> M4 ==> M5 ==> M6
 ```
 
 ---
@@ -38,6 +39,7 @@ flowchart LR
 | **M3：Client 驱动与全链路 E2E** | [`04-m3-client-and-e2e.md`](file:///home/fugui/flowbench/docs/04-tasks/04-m3-client-and-e2e.md) | `cmd/client/main.go`、`tests/e2e_test.go`、`Makefile`、`scripts/verify-e2e.sh` | `go test -v -race ./...` 全绿；`./scripts/verify-e2e.sh` 跑通 `SC-01`~`SC-06` 全部场景且自动清理后台进程 |
 | **M4：离线回放与自愈断言验证** | `tests/replay_verify_test.go` | `tests/replay_verify_test.go`、`data/native-ebpf-assets.json` | 进程内透明录制、出站 Mock 劫持、无 Backend 离线回放与回归突变精确拦截 |
 | **M5：原生 eBPF 协议感知监控** | [`06-m5-ebpf-monitor-and-console.md`](file:///home/fugui/flowbench/docs/04-tasks/06-m5-ebpf-monitor-and-console.md) | `internal/ebpf/`、`internal/monitor/`、`cmd/monitor/`、`scripts/start-monitor.sh` | 内核态 `cgroup/connect4` 透明劫持、动态 RequestID 自愈、字段级 Diff 诊断与安全 Web 控制台 |
+| **M6：通用私有 Protobuf 协议平台** | [`07-m6-universal-protobuf-platform.md`](file:///home/fugui/flowbench/docs/04-tasks/07-m6-universal-protobuf-platform.md) | `internal/codec/dynamic.go`、`internal/protocol/schema/`、`internal/monitor/proc.go`、`internal/ebpf/`、`internal/monitor/` | 声明式 `FramingSpec` DSL 拆帧、零依赖 `.proto` 动态反射、`/proc` 进程扫描与 `TargetPID` 精准拦截 |
 
 ---
 
