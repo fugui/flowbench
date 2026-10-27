@@ -1,4 +1,7 @@
-# flowbench: 基于 SDD 模式的自定义 Protobuf 二进制协议与 Keploy 流量验证环境开发指令
+# flowbench: 基于 SDD 模式的自定义 Protobuf 二进制协议开发指令 (历史归档)
+
+> [!NOTE]
+> 本文档为项目初期演进的历史提示词归档。随项目演进与实机测试验证，本项目已全面抛弃通用 Keploy 工具，转为基于原生 `cilium/ebpf` 的协议感知流量监控与自愈回放系统。
 
 ## 角色定位与工程原则
 你是一名资深 Go 分布式系统架构师、网络协议专家与 eBPF 流量录制回放（Keploy）测试专家。我们将采用 **规范驱动开发 (Spec-Driven Development, SDD)** 的工程方法，共同开发一个用于验证 [Keploy](https://github.com/keploy/keploy) 流量检测、录制（Record）与回放（Test/Replay）能力的基准测试系统（代号：**flowbench**）。

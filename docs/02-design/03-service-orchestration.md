@@ -12,7 +12,7 @@
 
 在三层微服务（`Client -> Server -> Backend`）验证环境中，如果 `Server` 只是把 `Backend` 的响应原封不动转发给 `Client`，则无法验证以下关键问题：
 1. **入站与出站二进制帧结构的异构性**：真实业务中，`Client <-> Server` 的对外接口契约（外部请求/聚合视图响应）与 `Server <-> Backend` 的内部调用契约（底层原子数据查询）往往采用完全不同的 Protobuf Message 定义与 OpCode。
-2. **Server 代码回归缺陷检出（Regression Detection）**：Keploy 回放测试的核心价值是当 `Backend` 被 Mock 固定后，一旦 `Server` 自身的业务计算逻辑（如折扣公式、税率规则、风控阈值、摘要算法）被错误修改，`keploy test` 能够通过比对 `Server` 输出给 `Client` 的二进制帧立即报警。
+2. **Server 代码回归缺陷检出（Regression Detection）**：流量回放测试的核心价值是当 `Backend` 被 Mock 固定后，一旦 `Server` 自身的业务计算逻辑（如折扣公式、税率规则、风控阈值、摘要算法）被错误修改，离线回放测试能够通过比对 `Server` 输出给 `Client` 的二进制帧立即报警。
 3. **确定性与非确定性字段控制**：通过在 `Server` 加工阶段集中管理时间戳、流水号与 SHA-256 业务摘要，能够精确控制响应报文的字节级确定性。
 
 ---
@@ -85,7 +85,7 @@ flowchart LR
    $$\text{total\_bps} = \text{vip\_discount\_bps} + \text{qty\_discount\_bps}$$
    $$\text{discount\_cents} = \frac{\text{subtotal\_cents} \times \text{total\_bps}}{10000}$$
    $$\text{discounted\_cents} = \text{subtotal\_cents} - \text{discount\_cents}$$
-   *(注：若开启回归突变测试开关 `-fault-mutation=discount_bug`，则人为注入偏差 `discount_cents += 100`，用于验证 Keploy 能否检出 1 元的计算错误)*。
+   *(注：若开启回归突变测试开关 `-fault-mutation=discount_bug`，则人为注入偏差 `discount_cents += 100`，用于验证回放比对能否检出 1 元的计算错误)*。
 
 #### 算子 ②：区域税费与重量阶梯运费核算 (`Regional Tax & Shipping`)
 1. **区域税率基点 (`tax_rate_bps`)**：
@@ -111,7 +111,7 @@ flowchart LR
 5. **自动审批通过**：其余正常情况 -> `biz_code = 200 (BIZ_OK)`，`risk_decision = "APPROVED"`。
 
 #### 算子 ④：确定性加工数字摘要 (`processing_digest`)
-为确保 `Client` 与 Keploy 均能一键核验上述全套加工链路的一致性，`Server` 将关键输入与加工结果按固定格式拼接并计算 SHA-256，取前 16 位小写十六进制字符作为 `processing_digest`：
+为确保 `Client` 与回放比对器均能一键核验上述全套加工链路的一致性，`Server` 将关键输入与加工结果按固定格式拼接并计算 SHA-256，取前 16 位小写十六进制字符作为 `processing_digest`：
 ```go
 digestInput := fmt.Sprintf(
     "req=%d|user=%s|sku=%s|qty=%d|sub=%d|disc=%d|tax=%d|ship=%d|final=%d|code=%d|decision=%s|wh=%s",
@@ -152,7 +152,7 @@ processingDigest := hex.EncodeToString(sum[:8]) // 16 hex chars
 
 ## 5. `Backend` 确定性内存数据字典 (In-Memory Deterministic Dataset)
 
-`internal/backend/store.go` 预置以下标准测试数据集，供全链路联调与 Keploy 录制使用：
+`internal/backend/store.go` 预置以下标准测试数据集，供全链路联调与录制使用：
 
 ### 5.1 预置商品库 (SKU Catalog)
 | `sku_id` | 商品名称 | `base_price_cents` | `available_stock` | `unit_weight_grams` | `warehouse_code` | 设计用途 |

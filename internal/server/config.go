@@ -3,7 +3,7 @@ package server
 
 import "time"
 
-// 故障突变模式常量，用于验证 Keploy 能否检出 Server 侧业务逻辑回归缺陷
+// 故障突变模式常量，用于验证录制回放系统能否检出 Server 侧业务逻辑回归缺陷
 const (
 	MutationNone        = ""
 	MutationDiscountBug = "discount_bug" // 模拟折扣多减 100 分 (1.00 元) 的回归缺陷

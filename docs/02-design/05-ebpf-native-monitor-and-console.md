@@ -10,7 +10,7 @@
 
 ## 1. 架构设计目标与整体拓扑 (Architecture Overview)
 
-针对第一阶段实机验证揭示的 Keploy 局限（Ingress 硬编码 HTTP/1.1 报错 `0x4854`、Egress 退化为 Base64 盲字节块、无法感知 24B 帧头与 Protobuf 明文、缺乏私有协议可视化控制台），本模块直接基于 **`github.com/cilium/ebpf`** 构建原生协议感知的内核级流量监控、录制回放与实时 Web 控制台子系统（`cmd/monitor`）。
+针对通用外部工具在私有二进制协议上的局限（Ingress 硬编码 HTTP/1.1、Egress 退化为 Base64 盲字节块、无法感知 24B 帧头与 Protobuf 明文、缺乏私有协议可视化控制台），本模块直接基于 **`github.com/cilium/ebpf`** 构建原生协议感知的内核级流量监控、录制回放与实时 Web 控制台子系统（`cmd/monitor`）。
 
 ```mermaid
 flowchart LR
@@ -105,7 +105,7 @@ type CapturedFrameEvent struct {
     CRC32Valid     bool              `json:"crc32_valid"`     // 载荷 CRC32 校验结果
     ProtobufJSON   map[string]any    `json:"protobuf_json"`   // 解码后的业务字段明文
     RawWireHex     string            `json:"raw_wire_hex"`    // 完整帧 Hex Dump
-    RawBase64      string            `json:"raw_base64"`      // 与 Keploy 对照的 Base64 编码
+    RawBase64      string            `json:"raw_base64"`      // 完整帧 Base64 编码
     LatencyMs      float64           `json:"latency_ms"`
 }
 ```
@@ -140,7 +140,6 @@ type CapturedFrameEvent struct {
 | `/api/status` | `GET` | 返回当前三端存活状态、`cilium/ebpf` 探针挂载状态、BPF Map 实时计数、已录制用例与 Mock 列表 |
 | `/api/events` | `GET` | **SSE (Server-Sent Events)** 实时流，零延迟推送捕获的每一帧 `CapturedFrameEvent` |
 | `/api/run` | `POST` | 触发一键实验：`{"action": "record" \| "replay" \| "mutation" \| "non_deterministic"}`，自动编排三端与 eBPF 并返回完整场景断言报告与字段级 Diff |
-| `/api/keploy-mocks` | `GET` | 读取并实时逆向解码仓库中的 [`keploy/keploy/flowbench-e2e/mocks.yaml`](file:///home/fugui/flowbench/keploy/keploy/flowbench-e2e/mocks.yaml)，返回 Base64 原文与解码后的 24B 帧头 + Protobuf 明文对照表 |
 
 ### 4.2 Web 安全防护设计 (Security Hardening)
 

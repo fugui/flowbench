@@ -86,7 +86,7 @@ type ExperimentReport struct {
 	Scenarios       []ScenarioAssertionResult `json:"scenarios"`
 }
 
-// PersistedAssetBundle 为落盘保存至 keploy/native-ebpf-assets.json 的可读资产包。
+// PersistedAssetBundle 为落盘保存至 data/native-ebpf-assets.json 的可读资产包。
 type PersistedAssetBundle struct {
 	GeneratedBy string              `json:"generated_by"`
 	UpdatedAt   string              `json:"updated_at"`
@@ -100,7 +100,6 @@ type Engine struct {
 	seqCounter      atomic.Uint64
 	interceptor     *ebpf.Interceptor
 	assetFilePath   string
-	keployMocksPath string
 	virtualSrvPort  uint16
 	virtualBackPort uint16
 
@@ -117,7 +116,6 @@ type Engine struct {
 // EngineConfig 定义监控与回放引擎初始化配置。
 type EngineConfig struct {
 	AssetFilePath   string
-	KeployMocksPath string
 	VirtualSrvPort  uint16
 	VirtualBackPort uint16
 }
@@ -125,10 +123,7 @@ type EngineConfig struct {
 // NewEngine 创建协议感知监控与回放引擎，并尝试初始化 cilium/ebpf cgroup/connect4 探针。
 func NewEngine(cfg EngineConfig) *Engine {
 	if cfg.AssetFilePath == "" {
-		cfg.AssetFilePath = filepath.Join("keploy", "native-ebpf-assets.json")
-	}
-	if cfg.KeployMocksPath == "" {
-		cfg.KeployMocksPath = filepath.Join("keploy", "keploy", "flowbench-e2e", "mocks.yaml")
+		cfg.AssetFilePath = filepath.Join("data", "native-ebpf-assets.json")
 	}
 	if cfg.VirtualSrvPort == 0 {
 		cfg.VirtualSrvPort = DefaultVirtualServerPort
@@ -139,7 +134,6 @@ func NewEngine(cfg EngineConfig) *Engine {
 
 	eng := &Engine{
 		assetFilePath:   cfg.AssetFilePath,
-		keployMocksPath: cfg.KeployMocksPath,
 		virtualSrvPort:  cfg.VirtualSrvPort,
 		virtualBackPort: cfg.VirtualBackPort,
 		egressMocks:     make(map[string]*RecordedMockAsset),
@@ -434,7 +428,7 @@ func (e *Engine) runRecordSuite(ctx context.Context) (*ExperimentReport, error) 
 		_ = realServerCli.Close()
 	}()
 
-	// 4. 启动 Ingress 协议感知代理服务器 (解决 Keploy 无法录制非 HTTP 入站二进制流量的痛点)
+	// 4. 启动 Ingress 协议感知代理服务器 (支持非 HTTP 入站二进制流量透明拦截与录制)
 	ingressProxySrv := transport.NewServer(transport.ServerConfig{
 		Name:       "ebpf-ingress-proxy-record",
 		ListenAddr: "127.0.0.1:0",

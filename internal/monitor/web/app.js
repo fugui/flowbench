@@ -99,7 +99,7 @@
       "detail-raw-hex",
       "[Wire Hex (" + (frame.raw_wire_hex ? frame.raw_wire_hex.length / 2 : 0) + "B)]:\n" +
         (frame.raw_wire_hex || "") +
-        "\n\n[Base64 (Keploy Format)]:\n" +
+        "\n\n[Base64]:\n" +
         (frame.raw_base64 || "")
     );
   }
@@ -215,50 +215,6 @@
     }
   }
 
-  function renderKeployMocks(mocks) {
-    var container = document.getElementById("keploy-compare-container");
-    if (!container) return;
-    container.replaceChildren();
-
-    for (var i = 0; i < mocks.length; i++) {
-      var m = mocks[i];
-      var card = el("div", "keploy-card");
-      var head = el("div", "sc-head");
-      head.appendChild(
-        el(
-          "span",
-          "sc-title",
-          "Keploy " +
-            m.name +
-            " | 逆向解码: " +
-            m.decoded_request.header.op_name +
-            " -> " +
-            m.decoded_response.header.op_name +
-            " (ReqID=" +
-            m.decoded_request.header.request_id +
-            ")"
-        )
-      );
-      head.appendChild(el("span", "badge badge-pass", "CRC32 VALID"));
-      card.appendChild(head);
-
-      card.appendChild(
-        el("div", "sc-meta", "Keploy 原始 Base64 (盲二进制): " + m.recorded_req_base64.slice(0, 44) + "...")
-      );
-
-      var pre = el(
-        "pre",
-        "",
-        "【请求 Protobuf 明文】:\n" +
-          JSON.stringify(m.decoded_request.protobuf_json, null, 2) +
-          "\n【响应 Protobuf 明文】:\n" +
-          JSON.stringify(m.decoded_response.protobuf_json, null, 2)
-      );
-      card.appendChild(pre);
-      container.appendChild(card);
-    }
-  }
-
   function triggerExperiment(action) {
     var btns = document.querySelectorAll(".btn");
     for (var i = 0; i < btns.length; i++) {
@@ -322,17 +278,6 @@
         }
         if (data.last_report) {
           renderExperimentReport(data.last_report);
-        }
-      })
-      .catch(function () {});
-
-    fetch("/api/keploy-mocks")
-      .then(function (r) {
-        return r.json();
-      })
-      .then(function (data) {
-        if (data && data.mocks) {
-          renderKeployMocks(data.mocks);
         }
       })
       .catch(function () {});

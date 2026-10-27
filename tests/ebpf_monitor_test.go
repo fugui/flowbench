@@ -17,14 +17,12 @@ import (
 )
 
 // TestEBPFMonitor_FullLifecycleAndWebConsole 验证原生 cilium/ebpf 监控引擎的录制、无 Backend 离线回放、
-// 动态 RequestID 自愈、字段级突变 Diff、Keploy Base64 逆向解码及安全 Web 控制台接口。
+// 动态 RequestID 自愈、字段级突变 Diff 及安全 Web 控制台接口。
 func TestEBPFMonitor_FullLifecycleAndWebConsole(t *testing.T) {
 	tmpAssetPath := filepath.Join(t.TempDir(), "native-ebpf-assets.json")
-	keployMocksPath := filepath.Join("..", "keploy", "keploy", "flowbench-e2e", "mocks.yaml")
 
 	eng := monitor.NewEngine(monitor.EngineConfig{
 		AssetFilePath:   tmpAssetPath,
-		KeployMocksPath: keployMocksPath,
 		VirtualSrvPort:  29100,
 		VirtualBackPort: 29200,
 	})
@@ -127,23 +125,7 @@ func TestEBPFMonitor_FullLifecycleAndWebConsole(t *testing.T) {
 		t.Fatalf("expected field-level diff to pinpoint payload.discount_cents on SC-02")
 	}
 
-	// 5. 验证 Keploy mocks.yaml Base64 逆向解码器 (REPLAY-05)
-	if _, statErr := os.Stat(keployMocksPath); statErr == nil {
-		decodedMocks, decErr := monitor.DecodeKeployMocksFile(keployMocksPath)
-		if decErr != nil {
-			t.Fatalf("DecodeKeployMocksFile failed: %v", decErr)
-		}
-		if len(decodedMocks) != 4 {
-			t.Fatalf("expected 4 decoded Keploy mocks, got %d", len(decodedMocks))
-		}
-		for _, dm := range decodedMocks {
-			if !dm.DecodedRequest.CRC32Valid || !dm.DecodedResponse.CRC32Valid {
-				t.Fatalf("expected valid CRC32 on decoded Keploy mock %s", dm.Name)
-			}
-		}
-	}
-
-	// 6. 验证安全 Web 控制台接口与安全响应头
+	// 5. 验证安全 Web 控制台接口与安全响应头
 	ws := monitor.NewWebServer("127.0.0.1:0", eng)
 	addr, err := ws.Start()
 	if err != nil {

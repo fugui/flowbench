@@ -36,7 +36,7 @@
 5. **E2E-05 TCP 粘包与半包压力测试 (`TestTCPFramingCoalescingAndFragmentation`)**。
 
 ### Task 3.3：编写 `Makefile` 与 `scripts/verify-e2e.sh`
-1. `Makefile` 提供 `build`、`test`、`vet`、`fmt`、`verify-e2e`、`keploy-record`、`keploy-test`、`clean` 目标。
+1. `Makefile` 提供 `build`、`test`、`vet`、`fmt`、`verify-e2e`、`monitor`、`clean` 目标。
 2. `scripts/verify-e2e.sh`：编译三端二进制 -> 后台启动 `Backend (127.0.0.1:9200)` 与 `Server (127.0.0.1:9100)` -> 运行 `Client -mode=suite` 与 `Client -mode=framing` -> `trap cleanup EXIT` 彻底回收后台进程。
 
 ---

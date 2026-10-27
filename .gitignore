@@ -32,10 +32,7 @@ tmp/
 *.log
 *.pid
 
-# Keploy runtime temporary & report artifacts (keep curated test-sets if tracked, ignore reports/logs)
-keploy-logs.txt
-keploy/reports/
-keploy/tmp/
+# eBPF objects
 bpf.o
 
 # IDE & OS files

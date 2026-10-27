@@ -141,7 +141,7 @@ stateDiagram-v2
 ```
 
 ### 3.2 关键实现守则
-1. **单次 Write 原子性（助推 eBPF 抓包清晰度）**：在 `WriteFrame(w io.Writer, frame *Frame)` 中，先在内存中分配 `24 + len(payload)` 字节的连续切片，将 24 字节帧头与 Payload 组装为一个完整连续缓冲区后，通过单次 `w.Write(fullBuf)` 写入 TCP Socket。这样在正常发送路径下，单个业务帧对应一次 `write/sendto` 系统调用，极大方便 Keploy eBPF 探针按报文捕获。
+1. **单次 Write 原子性（助推 eBPF 抓包清晰度）**：在 `WriteFrame(w io.Writer, frame *Frame)` 中，先在内存中分配 `24 + len(payload)` 字节的连续切片，将 24 字节帧头与 Payload 组装为一个完整连续缓冲区后，通过单次 `w.Write(fullBuf)` 写入 TCP Socket。这样在正常发送路径下，单个业务帧对应一次 `write/sendto` 系统调用，极大方便 eBPF 探针按报文捕获。
 2. **確定性 Protobuf 编码**：在 `internal/protocol/marshal.go` 中统一封装：
    ```go
    var deterministicMarshaller = proto.MarshalOptions{

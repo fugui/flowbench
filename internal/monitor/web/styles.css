@@ -408,16 +408,3 @@ pre {
   overflow-y: auto;
   color: #38bdf8;
 }
-
-.keploy-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-  gap: 12px;
-}
-
-.keploy-card {
-  background: var(--bg-card-alt);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 12px;
-}

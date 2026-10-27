@@ -63,7 +63,6 @@ func (ws *WebServer) Start() (string, error) {
 	mux.HandleFunc("/api/status", ws.handleStatus)
 	mux.HandleFunc("/api/events", ws.handleSSE)
 	mux.HandleFunc("/api/run", ws.handleRunExperiment)
-	mux.HandleFunc("/api/keploy-mocks", ws.handleKeployMocks)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -211,27 +210,4 @@ func (ws *WebServer) handleRunExperiment(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(report)
-}
-
-func (ws *WebServer) handleKeployMocks(w http.ResponseWriter, r *http.Request) {
-	applySecurityHeaders(w)
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	mocks, err := DecodeKeployMocksFile(ws.engine.keployMocksPath)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"mocks": []KeployDecodedMock{},
-			"note":  err.Error(),
-		})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"mocks": mocks,
-	})
 }

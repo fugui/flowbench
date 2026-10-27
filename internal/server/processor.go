@@ -123,7 +123,7 @@ func ProcessOrderQuote(
 	totalBps := vipDiscountBps + qtyDiscountBps
 	discountCents := (subtotalCents * totalBps) / 10000
 
-	// 若开启回归突变测试开关，人为多减 100 分（1.00 元），检验 Keploy 能否拦截
+	// 若开启回归突变测试开关，人为多减 100 分（1.00 元），检验回放断言能否拦截
 	if faultMutation == MutationDiscountBug {
 		discountCents += 100
 	}

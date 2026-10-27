@@ -15,14 +15,12 @@ import (
 
 func main() {
 	var (
-		listenAddr  string
-		assetPath   string
-		keployMocks string
-		autoSeed    bool
+		listenAddr string
+		assetPath  string
+		autoSeed   bool
 	)
 	flag.StringVar(&listenAddr, "addr", "127.0.0.1:9300", "Web 可视化监控控制台监听地址 (仅限本地环回)")
-	flag.StringVar(&assetPath, "assets", "keploy/native-ebpf-assets.json", "原生协议感知录制资产文件路径")
-	flag.StringVar(&keployMocks, "keploy-mocks", "keploy/keploy/flowbench-e2e/mocks.yaml", "Keploy 录制的 mocks.yaml 对比文件路径")
+	flag.StringVar(&assetPath, "assets", "data/native-ebpf-assets.json", "原生协议感知录制资产文件路径")
 	flag.BoolVar(&autoSeed, "auto-seed", true, "启动时自动执行一次全链路 eBPF 录制以初始化控制台基线数据")
 	flag.Parse()
 
@@ -30,8 +28,7 @@ func main() {
 	slog.SetDefault(logger)
 
 	eng := monitor.NewEngine(monitor.EngineConfig{
-		AssetFilePath:   assetPath,
-		KeployMocksPath: keployMocks,
+		AssetFilePath: assetPath,
 	})
 	defer func() {
 		if err := eng.Close(); err != nil {

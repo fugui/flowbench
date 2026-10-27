@@ -21,9 +21,10 @@ flowchart LR
     M1["Milestone 1: 协议与编解码底座<br/>(proto / internal/protocol / internal/codec)<br/>24B 帧头 + Protobuf + 粘包拆帧单测"]
     M2["Milestone 2: 传输层与双服务端实现<br/>(internal/transport / backend / server)<br/>Backend 数据底座 + Server 四步加工引擎"]
     M3["Milestone 3: Client 驱动与全链路 E2E<br/>(cmd/client / tests/e2e_test.go / scripts)<br/>6 大场景拨测 + 突变检测 + 确定性验证"]
-    M4["Milestone 4: Keploy 流量录制与回放闭环<br/>(keploy / scripts/keploy-*.sh / docs/06-ops)<br/>eBPF Record 录制 + 无 Backend 离线 Test 回放"]
+    M4["Milestone 4: 离线回放与自愈断言验证<br/>(tests/replay_verify_test.go / data)<br/>进程内透明代理录制 + 无 Backend 离线 Mock 回放"]
+    M5["Milestone 5: 原生 cilium/ebpf 监控与 Web 控制台<br/>(internal/ebpf / internal/monitor / cmd/monitor)<br/>内核透明劫持 + 24B/Protobuf解剖 + 实时控制台"]
 
-    M1 ==> M2 ==> M3 ==> M4
+    M1 ==> M2 ==> M3 ==> M4 ==> M5
 ```
 
 ---
@@ -35,7 +36,8 @@ flowchart LR
 | **M1：协议与编解码底座** | [`02-m1-protocol-and-codec.md`](file:///home/fugui/flowbench/docs/04-tasks/02-m1-protocol-and-codec.md) | `go.mod`、`proto/flowbench/v1/messages.proto`、`internal/protocol/pb/messages.pb.go`、`internal/protocol/marshal.go`、`internal/codec/frame.go`、`internal/codec/stream.go`、`internal/codec/frame_test.go` | `go test -v -race ./internal/codec/... ./internal/protocol/...` 100% 通过（覆盖单字节半包、10帧粘包、CRC32篡改、超大帧拦截、确定性 Marshal） |
 | **M2：传输层与双服务端** | [`03-m2-backend-and-server.md`](file:///home/fugui/flowbench/docs/04-tasks/03-m2-backend-and-server.md) | `internal/transport/{server,client}.go`、`internal/backend/{store,handler,handler_test}.go`、`internal/server/{config,processor,handler,processor_test}.go`、`cmd/backend/main.go`、`cmd/server/main.go` | `go build ./cmd/backend ./cmd/server` 成功；`go test -v -race ./internal/...` 100% 通过 |
 | **M3：Client 驱动与全链路 E2E** | [`04-m3-client-and-e2e.md`](file:///home/fugui/flowbench/docs/04-tasks/04-m3-client-and-e2e.md) | `cmd/client/main.go`、`tests/e2e_test.go`、`Makefile`、`scripts/verify-e2e.sh` | `go test -v -race ./...` 全绿；`./scripts/verify-e2e.sh` 跑通 `SC-01`~`SC-06` 全部场景且自动清理后台进程 |
-| **M4：Keploy 录制与回放验证** | [`05-m4-keploy-verification.md`](file:///home/fugui/flowbench/docs/04-tasks/05-m4-keploy-verification.md) | `keploy/keploy.yml`、`scripts/keploy-record.sh`、`scripts/keploy-test.sh`、`docs/06-ops/01-keploy-verification-guide.md` | 录制与离线回放脚本可执行验证，产出完整的 Keploy 流量检测、二进制 Mock 劫持与确定性回放观测指南 |
+| **M4：离线回放与自愈断言验证** | `tests/replay_verify_test.go` | `tests/replay_verify_test.go`、`data/native-ebpf-assets.json` | 进程内透明录制、出站 Mock 劫持、无 Backend 离线回放与回归突变精确拦截 |
+| **M5：原生 eBPF 协议感知监控** | [`06-m5-ebpf-monitor-and-console.md`](file:///home/fugui/flowbench/docs/04-tasks/06-m5-ebpf-monitor-and-console.md) | `internal/ebpf/`、`internal/monitor/`、`cmd/monitor/`、`scripts/start-monitor.sh` | 内核态 `cgroup/connect4` 透明劫持、动态 RequestID 自愈、字段级 Diff 诊断与安全 Web 控制台 |
 
 ---
 

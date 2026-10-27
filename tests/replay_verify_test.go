@@ -24,7 +24,7 @@ type recordedInteraction struct {
 	RawResp   []byte
 }
 
-// binaryTrafficRecorder 模拟 Keploy eBPF 探针在 Record 与 Test 阶段对 Ingress/Egress 二进制帧的捕获与 Mock 劫持
+// binaryTrafficRecorder 记录在 Record 与 Replay 阶段对 Ingress/Egress 二进制帧的捕获与 Mock 劫持
 type binaryTrafficRecorder struct {
 	mu          sync.Mutex
 	ingressSet  []recordedInteraction
@@ -155,7 +155,7 @@ func TestBinaryRecordAndOfflineReplay(t *testing.T) {
 	// 阶段 B：离线回放态 (Test Replay Mode) —— 真实 Backend 已关闭，仅靠二进制 Mock 回放
 	// =========================================================================
 	mockBackendServer := transport.NewServer(transport.ServerConfig{
-		Name:       "keploy-ebpf-mock-proxy",
+		Name:       "mock-backend-proxy",
 		ListenAddr: "127.0.0.1:0",
 		IOTimeout:  3 * time.Second,
 	}, func(ctx context.Context, reqFrame *codec.Frame) (*codec.Frame, error) {
@@ -206,7 +206,7 @@ func TestBinaryRecordAndOfflineReplay(t *testing.T) {
 	}()
 
 	replayCli := transport.NewClient(transport.ClientConfig{
-		Name:       "keploy-replay-driver",
+		Name:       "offline-replay-driver",
 		TargetAddr: replayServerAddr,
 		ConnMode:   transport.ConnModeShort,
 		Timeout:    3 * time.Second,

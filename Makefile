@@ -1,4 +1,4 @@
-.PHONY: all build test vet fmt verify-e2e keploy-record keploy-test clean
+.PHONY: all build test vet fmt verify-e2e monitor clean
 
 BIN_DIR := bin
 
@@ -23,11 +23,8 @@ fmt:
 verify-e2e: build
 	bash ./scripts/verify-e2e.sh
 
-keploy-record: build
-	bash ./scripts/keploy-record.sh
-
-keploy-test: build
-	bash ./scripts/keploy-test.sh
+monitor: build
+	bash ./scripts/start-monitor.sh
 
 clean:
 	rm -rf $(BIN_DIR) logs tmp

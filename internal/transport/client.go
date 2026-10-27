@@ -14,7 +14,7 @@ import (
 
 // 连接模式常量定义
 const (
-	ConnModeShort     = "short"     // 每次请求建立独立短连接（推荐用于 Keploy eBPF 录制/回放）
+	ConnModeShort     = "short"     // 每次请求建立独立短连接
 	ConnModeKeepAlive = "keepalive" // 单条长连接多帧顺序复用
 )
 

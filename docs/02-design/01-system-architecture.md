@@ -14,7 +14,7 @@
 
 1. **三层微服务职责清晰隔离**：将系统拆分为独立的三个操作系统进程——`Client`（流量发起与验证端）、`Server`（核心被测系统 SUT，负责业务编排与二次加工）、`Backend`（下游基础数据与原子规则服务），完整还原生产环境中“上游调用 -> 本服务处理并调下游 -> 汇总加工返回”的典型微服务链路。
 2. **纯粹的自定义 TCP 二进制协议栈**：在传输层直接使用 Go 原生 `net.Conn` (TCP)，在应用层通过自研 24 字节定长二进制帧头（Frame Header）承载 Protobuf 二进制载荷，完全剥离 HTTP/1.1、HTTP/2 与 gRPC，使网络字节流纯粹由自定义二进制帧构成。
-3. **面向 Keploy eBPF 的最佳可观测与可回放性**：针对 Keploy 内核态 eBPF 探针捕获 Ingress（入站）和劫持 Egress（出站）TCP 流量的工作机制，提供无歧义的请求-响应帧边界、可切换的短连接/长连接模型以及严格的确定性计算控制。
+3. **面向原生 eBPF 的最佳可观测与可回放性**：针对内核态 eBPF 探针捕获 Ingress（入站）和劫持 Egress（出站）TCP 流量的工作机制，提供无歧义的请求-响应帧边界、可切换的短连接/长连接模型以及严格的确定性计算控制。
 4. **零外部运行时依赖**：所有子系统编译为独立静态/原生二进制文件，无外部数据库或中间件依赖，确保在任意 Linux 环境中秒级拉起并执行端到端测试。
 
 ---
@@ -32,7 +32,7 @@ flowchart TB
         CLI --> C_Codec --> C_Trans
     end
 
-    subgraph SUTBoundary["Keploy eBPF 监控与劫持边界 (System Under Test)"]
+    subgraph SUTBoundary["被测与流量治理边界 (System Under Test)"]
         subgraph ServerProc["Server 进程 (cmd/server) — 监听 127.0.0.1:9100"]
             S_Listener["TCP Server 监听器<br/>(127.0.0.1:9100)"]
             S_Codec["Codec 帧编解码器<br/>(流式拆帧 + CRC32校验)"]
@@ -48,7 +48,7 @@ flowchart TB
             S_Engine -- "加工后响应" --> S_Codec
             S_Validator -- "校验失败(短路)" --> S_Codec
         end
-        Keploy[["Keploy eBPF Agent<br/>1. 捕获 9100 入站流量生成 TestCase<br/>2. 捕获/劫持发往 9200 的出站流量生成/回放 TCP Mock"]]
+        MonitorHook[["flowbench-monitor (cilium/ebpf)<br/>1. 捕获 9100 入站流量解剖生成用例<br/>2. 劫持发往 9200 的出站流量生成/回放自愈 Mock"]]
     end
 
     subgraph BackendProc["Backend 进程 (cmd/backend) — 监听 127.0.0.1:9200"]
@@ -64,7 +64,7 @@ flowchart TB
 
     C_Trans == "① Ingress TCP 二进制帧<br/>(127.0.0.1:9100)" ==> S_Listener
     S_Orch == "② Egress TCP 二进制帧<br/>(127.0.0.1:9200)" ==> B_Listener
-    Keploy -. "eBPF Socket Hook" .- ServerProc
+    MonitorHook -. "cgroup/connect4 Hook" .- ServerProc
 ```
 
 ### 2.2 端口与地址安全规范
@@ -73,9 +73,10 @@ flowchart TB
 | **Backend** | `flowbench-backend` | 下游基础数据与规则计算服务 | 监听 `127.0.0.1:9200` | Raw TCP + 24B Frame + Protobuf |
 | **Server** | `flowbench-server` | 核心被测服务 (SUT)，承上启下与业务加工 | 监听 `127.0.0.1:9100`<br>连接下游 `127.0.0.1:9200` | Raw TCP + 24B Frame + Protobuf |
 | **Client** | `flowbench-client` | 上游调用客户端与测试断言驱动器 | 连接服务端 `127.0.0.1:9100` | Raw TCP + 24B Frame + Protobuf |
+| **Monitor** | `flowbench-monitor` | 原生 eBPF 协议感知监控与实时 Web 控制台 | 监听 `127.0.0.1:9300` | Web HTTP/SSE + eBPF cgroup Hook |
 
 > [!IMPORTANT]
-> 所有服务端监听地址默认强制绑定 `127.0.0.1`（本地环回），禁止默认监听 `0.0.0.0`，既满足本地安全合规要求，又确保 Keploy 在单机环回网卡（`lo`）上稳定拦截 TCP Socket 系统调用。
+> 所有服务端监听地址默认强制绑定 `127.0.0.1`（本地环回），禁止默认监听 `0.0.0.0`，既满足本地安全合规要求，又确保探针在单机环回网卡（`lo`）上稳定拦截 TCP Socket 系统调用。
 
 ---
 
@@ -159,12 +160,11 @@ flowbench/
 │       ├── processor.go                # 核心业务二次加工纯函数引擎（折扣、税费、风控、SHA-256 摘要）
 │       ├── handler.go                  # Server 帧路由与下游 Backend 编排处理器
 │       └── processor_test.go           # 加工引擎与确定性摘要单元测试
-├── keploy/
-│   └── keploy.yml                      # Keploy 录制与测试配置文件
+├── data/
+│   └── native-ebpf-assets.json         # 原生录制的测试用例与二进制 Mock 资产
 ├── scripts/
 │   ├── verify-e2e.sh                   # 本地三端全链路自动化联调与断言脚本
-│   ├── keploy-record.sh                # Keploy 流量录制编排脚本
-│   └── keploy-test.sh                  # Keploy 离线回放（无 Backend）验证脚本
+│   └── start-monitor.sh                # 原生 eBPF 监控与 Web 控制台特权启动脚本
 ├── tests/
 │   └── e2e_test.go                     # Go 原生三端全链路集成测试（含粘包压测、短路校验、突变检测）
 └── Makefile                            # 标准化构建、测试、格式化与验证入口
@@ -196,20 +196,20 @@ graph TD
 
 ## 5. TCP 连接模型与并发控制设计 (Connection & Concurrency Model)
 
-为了全面验证 Keploy eBPF 探针对不同 TCP 连接生命周期的适应能力，`internal/transport/client.go` 设计支持两种连接模式：
+为了全面验证探针对不同 TCP 连接生命周期的适应能力，`internal/transport/client.go` 设计支持两种连接模式：
 
-1. **短连接模式 (`ConnModeShort = "short"`，默认推荐用于 Keploy 录制/回放)**：
+1. **短连接模式 (`ConnModeShort = "short"`)**：
    - 每次 RPC 调用（无论是 `Client -> Server` 还是 `Server -> Backend`）均通过 `net.DialTimeout` 建立一条新的 TCP 连接，发送 1 个请求帧并读取 1 个响应帧后立即调用 `conn.Close()`。
-   - **设计考量**：在 Keploy 的 Generic TCP 录制回放机制中，短连接生命周期边界清晰，每次 `Server -> Backend` 的出站连接对应唯一一次请求与响应二进制流，能够最大化提升 eBPF 出站 Mock 匹配确定性。
+   - **设计考量**：短连接生命周期边界清晰，每次 `Server -> Backend` 的出站连接对应唯一一次请求与响应二进制流，出站 Mock 匹配确定性高。
 2. **长连接复用模式 (`ConnModeKeepAlive = "keepalive"`)**：
    - 客户端维护长连接，在同一个 `net.Conn` 上按序发送多个请求帧并读取对应响应帧（通过互斥锁保证同一连接上帧写入与读取的原子性，并通过 `Header.RequestID` 严格校验响应归属）。
-   - **设计考量**：用于压测流式拆包状态机（粘包/连续帧）以及测试 Keploy 在单条 TCP 流承载多次交互时的行为表现。
+   - **设计考量**：用于压测流式拆包状态机（粘包/连续帧）以及测试在单条 TCP 流承载多次交互时的行为表现。
 
 ---
 
 ## 6. 优雅停机与信号处理设计 (Graceful Shutdown)
 
-Keploy 在完成 `record` 或 `test` 时，会向被测进程（`flowbench-server`）发送 `SIGINT` 或 `SIGTERM` 信号。若被测进程被强制杀死或未能正常关闭监听句柄，可能导致覆盖率或尾部录制数据刷盘异常。因此 `Server` 与 `Backend` 统一实现标准优雅停机流程：
+在完成录制或回放测试时，系统会向被测进程（`flowbench-server`）发送 `SIGINT` 或 `SIGTERM` 信号。若被测进程被强制杀死或未能正常关闭监听句柄，可能导致尾部录制数据刷盘异常。因此 `Server` 与 `Backend` 统一实现标准优雅停机流程：
 
 1. 主 Goroutine 通过 `signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)` 监听退出信号。
 2. 收到信号后，立即调用 `listener.Close()` 停止接收新连接，`Accept()` 循环识别到 `net.ErrClosed` 后正常退出。

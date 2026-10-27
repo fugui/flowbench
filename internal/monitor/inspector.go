@@ -1,15 +1,13 @@
-// Package monitor 提供基于 cilium/ebpf 的协议感知二进制流量监控、智能录制回放、字段级 Diff 断言、
-// Keploy Base64 资产逆向解码以及内嵌安全 Web 可视化控制台。
+// Package monitor 提供基于 cilium/ebpf 的协议感知二进制流量监控、智能录制回放、字段级 Diff 断言
+// 以及内嵌安全 Web 可视化控制台。
 package monitor
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -49,7 +47,7 @@ type CapturedFrameEvent struct {
 	CRC32Valid     bool              `json:"crc32_valid"`      // CRC32 校验是否通过
 	ProtobufJSON   map[string]any    `json:"protobuf_json"`    // 反序列化后的 Protobuf 业务字段明文
 	RawWireHex     string            `json:"raw_wire_hex"`     // 24B+Payload 完整十六进制字节流
-	RawBase64      string            `json:"raw_base64"`       // 完整帧 Base64 (与 Keploy +wEB... 对照)
+	RawBase64      string            `json:"raw_base64"`       // 完整帧 Base64 编码字符串
 	LatencyMs      float64           `json:"latency_ms"`
 }
 
@@ -58,16 +56,6 @@ type FieldDiff struct {
 	Field    string `json:"field"`
 	Expected string `json:"expected"`
 	Actual   string `json:"actual"`
-}
-
-// KeployDecodedMock 表示从 Keploy mocks.yaml 中逆向解码出的可读二进制 Mock 详情。
-type KeployDecodedMock struct {
-	Name               string             `json:"name"`
-	ConnID             string             `json:"conn_id"`
-	RecordedReqBase64  string             `json:"recorded_req_base64"`
-	RecordedRespBase64 string             `json:"recorded_resp_base64"`
-	DecodedRequest     CapturedFrameEvent `json:"decoded_request"`
-	DecodedResponse    CapturedFrameEvent `json:"decoded_response"`
 }
 
 // InspectFrame 将原始二进制帧解剖为包含 24B 帧头明细、CRC32 校验状态与 Protobuf 明文 JSON 的结构化对象。
@@ -225,70 +213,4 @@ func formatJSONValue(v any) string {
 		return fmt.Sprintf("%v", v)
 	}
 	return string(b)
-}
-
-// DecodeKeployMocksFile 解析 Keploy 生成的 mocks.yaml，将其中 Base64 盲二进制块逆向解码为 24B 帧头与 Protobuf 明文。
-func DecodeKeployMocksFile(filePath string) ([]KeployDecodedMock, error) {
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, err
-	}
-
-	blocks := strings.Split(string(content), "---")
-	var result []KeployDecodedMock
-
-	for idx, block := range blocks {
-		lines := strings.Split(block, "\n")
-		var name, connID string
-		var dataList []string
-
-		for _, rawLine := range lines {
-			line := strings.TrimSpace(rawLine)
-			if strings.HasPrefix(line, "name:") {
-				name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
-			} else if strings.HasPrefix(line, "connID:") {
-				connID = strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "connID:")), `"`)
-			} else if strings.HasPrefix(line, "data:") {
-				b64 := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-				if b64 != "" {
-					dataList = append(dataList, b64)
-				}
-			}
-		}
-
-		if len(dataList) < 2 {
-			continue
-		}
-		if name == "" {
-			name = fmt.Sprintf("mock-%d", idx)
-		}
-
-		reqRaw, err := base64.StdEncoding.DecodeString(dataList[0])
-		if err != nil {
-			return nil, fmt.Errorf("decode %s request base64: %w", name, err)
-		}
-		respRaw, err := base64.StdEncoding.DecodeString(dataList[1])
-		if err != nil {
-			return nil, fmt.Errorf("decode %s response base64: %w", name, err)
-		}
-
-		reqFrame, err := codec.ReadFrame(bytes.NewReader(reqRaw))
-		if err != nil {
-			return nil, fmt.Errorf("parse %s request frame: %w", name, err)
-		}
-		respFrame, err := codec.ReadFrame(bytes.NewReader(respRaw))
-		if err != nil {
-			return nil, fmt.Errorf("parse %s response frame: %w", name, err)
-		}
-
-		result = append(result, KeployDecodedMock{
-			Name:               name,
-			ConnID:             connID,
-			RecordedReqBase64:  dataList[0],
-			RecordedRespBase64: dataList[1],
-			DecodedRequest:     InspectFrame(reqFrame, "KEPLOY_EGRESS_REQ", "KEPLOY_YAML", uint64(idx*2+1), 0),
-			DecodedResponse:    InspectFrame(respFrame, "KEPLOY_EGRESS_RESP", "KEPLOY_YAML", uint64(idx*2+2), 0),
-		})
-	}
-	return result, nil
 }
