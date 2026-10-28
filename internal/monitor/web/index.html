@@ -63,7 +63,7 @@
     </div>
 
     <div class="dynamic-topo-canvas" id="topo-canvas">
-      <!-- 节点 1: Client 客户端 -->
+      <!-- 节点 1: Client 业务调用端 -->
       <div class="topo-card node-client" id="node-client" title="外部业务调用方 (终端/客户端/网关)">
         <div class="tc-header">
           <span class="tc-icon">💻</span>
@@ -81,50 +81,34 @@
         </div>
       </div>
 
-      <!-- 节点 2: eBPF Ingress Hook + 被测 SUT Server -->
+      <!-- 节点 2: 被测 SUT 业务服务 -->
       <div class="topo-card node-sut" id="node-sut" title="被挂载的目标业务进程 (SUT)">
         <div class="tc-header">
-          <span class="tc-icon">🛡️</span>
+          <span class="tc-icon">🎯</span>
           <span class="tc-name">目标服务 (SUT)</span>
         </div>
         <div class="tc-sub" id="topo-sut-sub">PID 0 | 127.0.0.1:9100</div>
         <div class="tc-metric" id="topo-sut-metric">协议: flowbench-v1</div>
       </div>
 
-      <!-- 连线 2: Egress 拦截链路 -->
-      <div class="topo-link" id="link-egress" data-link="sut->egress">
-        <div class="link-label" id="link-egress-label">connect4(:9200) | 0 QPS</div>
-        <div class="link-line">
-          <div class="flow-particles" id="particles-egress"></div>
-        </div>
-      </div>
-
-      <!-- 节点 3: eBPF Egress 引擎 / Mock 自愈 -->
-      <div class="topo-card node-egress" id="node-egress" title="出站透明重定向与自愈 Mock 引擎">
-        <div class="tc-header">
-          <span class="tc-icon">⚡</span>
-          <span class="tc-name">eBPF 出站自愈引擎</span>
-        </div>
-        <div class="tc-sub" id="topo-egress-sub">动态 RequestID + CRC32 自愈</div>
-        <div class="tc-metric" id="topo-egress-metric">已就绪 Mock: 0 条</div>
-      </div>
-
-      <!-- 连线 3: 连向下游后端集群 -->
-      <div class="topo-link" id="link-backends" data-link="egress->backends">
-        <div class="link-label" id="link-backends-label">下游路由表 (127.0.0.1)</div>
+      <!-- 连线 2: 下游调用拦截链路 (支持 eBPF 透明录制与自愈 Mock) -->
+      <div class="topo-link" id="link-backends" data-link="sut->backends">
+        <div class="link-label" id="link-backends-label">下游调用链路 | 0 QPS</div>
         <div class="link-line">
           <div class="flow-particles" id="particles-backends"></div>
         </div>
       </div>
 
-      <!-- 节点 4: 下游后端集群 (动态多后端) -->
-      <div class="topo-card node-backend" id="node-backend" title="下游微服务集群">
+      <!-- 节点 3: 下游后端集群 (动态多后端) -->
+      <div class="topo-card node-backend" id="node-backend" title="下游微服务依赖集群">
         <div class="tc-header">
           <span class="tc-icon">🗄️</span>
-          <span class="tc-name">下游集群 (Backends)</span>
+          <span class="tc-name">下游依赖集群 (Backends)</span>
         </div>
         <div class="tc-sub" id="topo-backend-sub">127.0.0.1:9200 (默认)</div>
-        <div class="tc-metric" id="topo-backend-status">录制透传 / 回放离线自愈</div>
+        <div class="tc-metric" id="topo-backend-status">
+          <span class="mode-pill mode-record" id="topo-backend-mode-pill">🟢 真实透传录制中</span>
+        </div>
       </div>
     </div>
   </section>
@@ -223,29 +207,29 @@
     </div>
   </section>
 
-  <!-- 双分栏主工作区 (38% 左栏: 业务事务树列表 | 62% 右栏: 深度解剖 & 原地自愈重放工作台) -->
+  <!-- 双分栏主工作区 (34% 左栏: 业务用例列表 | 66% 右栏: 经典 UML 时序图 + 业务验证工作台) -->
   <main class="studio-workbench">
-    <!-- 左栏: 捕获的端到端调用事务树列表 -->
+    <!-- 左栏: 捕获的业务请求调用用例列表 -->
     <section class="card trace-list-card">
       <div class="section-header">
-        <h2>📡 录制会话业务调用事务树 (Transaction Traces)</h2>
-        <span class="sub-hint" id="trace-count-label">共 0 笔调用</span>
+        <h2>📡 业务请求调用用例 (Business Calls)</h2>
+        <span class="sub-hint" id="trace-count-label">共 0 笔用例</span>
       </div>
 
       <div class="trace-toolbar">
-        <input type="text" id="trace-filter-input" class="input-ctrl" placeholder="按 OpCode / RequestID / 状态过滤...">
+        <input type="text" id="trace-filter-input" class="input-ctrl" placeholder="按接口名 / 状态 / 请求ID过滤...">
         <button type="button" class="btn btn-sm btn-outline" id="btn-refresh-traces">🔄 刷新</button>
-        <button type="button" class="btn btn-sm btn-outline" id="btn-view-raw-frames">📋 切换原始帧流水</button>
+        <button type="button" class="btn btn-sm btn-outline" id="btn-view-raw-frames">📋 原始帧流水</button>
       </div>
 
-      <!-- 事务树卡片容器 -->
+      <!-- 业务用例卡片容器 -->
       <div class="trace-items-container" id="trace-items-list">
         <div class="empty-hint" id="trace-empty-hint">
           ⏳ 暂无调用数据。请点击上方 <b>【▶ 开始监控录制】</b>，然后在外部业务客户端发起调用！
         </div>
       </div>
 
-      <!-- 平铺帧流水表格 (可选模式) -->
+      <!-- 平铺帧流水表格 (可选排障模式) -->
       <div class="raw-frames-view" id="raw-frames-view" style="display: none;">
         <div class="table-scroll">
           <table class="data-table">
@@ -265,99 +249,107 @@
       </div>
     </section>
 
-    <!-- 右栏: 深度解剖与单调用原地自愈重放工作台 -->
-    <section class="card detail-workbench-card">
-      <div class="tab-header-bar">
-        <button type="button" class="tab-btn active" id="tab-btn-inspector">🔬 协议深度解剖 (Inspector)</button>
-        <button type="button" class="tab-btn tab-highlight" id="tab-btn-replayer">▶️ 单调用原地自愈重放 (Replay Studio)</button>
-        <button type="button" class="tab-btn" id="tab-btn-mock">🎭 出站 Mock 资产编辑</button>
-      </div>
-
-      <!-- Tab 1: 协议深度解剖器 -->
-      <div class="tab-panel active" id="panel-inspector">
-        <div class="section-header">
-          <h3 id="selected-frame-title">请在左侧点击任意调用事务查看字节解剖</h3>
+    <!-- 右栏: 业务开发视角单组件工作台 (经典 UML 时序图 + 业务载荷 + 原地重放/Mock) -->
+    <section class="card detail-workbench-card" id="detail-workbench">
+      <div class="workbench-master-header">
+        <div class="wmh-info">
+          <span class="wmh-tag" id="current-trace-title">👈 请从左侧选择一条业务调用用例</span>
+          <span class="wmh-meta" id="current-trace-meta"></span>
         </div>
-
-        <div class="byte-matrix-title" id="byte-matrix-caption">帧头字节色块解剖图 (Wire Header Bytes)</div>
-        <div class="byte-matrix" id="header-byte-matrix"></div>
-
-        <div class="header-kv-grid" id="header-kv-grid"></div>
-
-        <div class="code-panels">
-          <div class="code-box">
-            <div class="code-title">dynamicpb 反序列化业务载荷 JSON（或无 Schema Wire Tag 降级树）</div>
-            <pre id="detail-protobuf-json">{}</pre>
-          </div>
-          <div class="code-box">
-            <div class="code-title">原始 Wire Hex &amp; Base64 编码</div>
-            <pre id="detail-raw-hex">--</pre>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tab 2: 单调用原地自愈重放器 (核心亮点！) -->
-      <div class="tab-panel" id="panel-replayer">
-        <div class="replayer-header-bar">
-          <div class="rh-info">
-            <span class="rh-tag" id="replay-op-tag">未选定调用</span>
-            <span class="rh-meta" id="replay-meta-text">从左侧选择一条调用事务发起重放验证</span>
-          </div>
-          <button type="button" class="btn btn-replay-action" id="btn-trigger-single-replay">
-            🚀 立即原地自愈重放 (Replay Single Call)
+        <div class="wmh-actions">
+          <button type="button" class="btn btn-sm btn-replay-action" id="btn-quick-replay-trace" style="display: none;">
+            🚀 原地重放此用例
           </button>
         </div>
+      </div>
 
-        <!-- 请求载荷在线微调区 -->
-        <div class="replayer-config-box">
-          <div class="code-title">
-            <span>入站请求 Protobuf JSON（支持在线微调字段值以进行 Mutation 实验）:</span>
+      <!-- 区域 1: 经典 UML 交互式组件通信时序图 -->
+      <div class="uml-sequence-card" id="uml-sequence-box" style="display: none;">
+        <div class="uml-card-header">
+          <div class="uch-title">
+            <span class="uch-icon">📊</span>
+            <span>经典 UML 组件通信时序图 (Caller ↔ SUT ↔ Backends)</span>
           </div>
-          <textarea id="textarea-replay-payload" class="code-textarea" rows="5"></textarea>
+          <div class="uch-legend">
+            <span class="leg-item"><span class="leg-sym line-solid"></span> 同步请求 ──▶</span>
+            <span class="leg-item"><span class="leg-sym line-dashed"></span> 响应返回 ◀┄┄</span>
+            <span class="leg-item"><span class="leg-sym sym-mock">🎭</span> 可Mock</span>
+            <span class="leg-hint">点击任意消息步骤可切换下方业务载荷</span>
+          </div>
         </div>
 
+        <div class="uml-canvas-wrapper" id="uml-canvas-container">
+          <!-- 动态渲染生命线头与步骤消息连线 -->
+        </div>
+      </div>
+
+      <!-- 区域 2: 纯业务 Protobuf 载荷与原地改参/Mock 工作台 -->
+      <div class="business-payload-card" id="business-payload-box" style="display: none;">
+        <div class="bpc-header">
+          <div class="bpc-title">
+            <span class="bpc-step-badge" id="bpc-step-num">步骤 ①</span>
+            <span class="bpc-step-title" id="bpc-step-title">业务请求入参 (Protobuf JSON)</span>
+          </div>
+          <div class="bpc-actions" id="bpc-action-buttons">
+            <button type="button" class="btn btn-sm btn-primary" id="btn-step-replay">🚀 用此入参重放测试 SUT</button>
+            <button type="button" class="btn btn-sm btn-primary" id="btn-step-mock" style="display: none;">💾 保存并作为离线 Mock 挡板重放</button>
+          </div>
+        </div>
+
+        <div class="bpc-hint-bar" id="bpc-hint-text">
+          💡 可直接修改下方业务 JSON 字段（如修改数量、金额或用户ID），点击重放验证 SUT 边界分支逻辑。
+        </div>
+
+        <textarea id="textarea-step-payload" class="code-textarea payload-editor" rows="7"></textarea>
+
         <!-- 重放比对结果看板 (Side-by-Side Diff) -->
-        <div class="replay-result-section" id="replay-result-box" style="display: none;">
+        <div class="replay-result-section" id="replay-result-box" style="display: none; margin-top: 12px;">
           <div class="result-summary-bar" id="replay-summary-bar">
             <span class="badge" id="replay-pass-badge">比对完成</span>
             <span id="replay-summary-text">正在比对...</span>
           </div>
 
-          <!-- 字段级差异列表 -->
           <div class="diff-block" id="replay-diff-box" style="display: none;">
             <div class="diff-title">⚠️ dynamicpb 结构化字段级 Diff 诊断:</div>
             <div class="diff-list" id="replay-diff-list"></div>
           </div>
 
-          <!-- 并排对比 -->
           <div class="side-by-side-grid">
             <div class="side-col">
-              <div class="side-head">录制基准响应 (Expected Baseline)</div>
+              <div class="side-head">录制基准业务响应 (Expected Baseline)</div>
               <pre class="side-pre" id="replay-expected-json"></pre>
             </div>
             <div class="side-col">
-              <div class="side-head">本次重放响应 (Actual Replay Response)</div>
+              <div class="side-head">本次重放实际响应 (Actual Replay Response)</div>
               <pre class="side-pre" id="replay-actual-json"></pre>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Tab 3: 出站 Mock 编辑器 -->
-      <div class="tab-panel" id="panel-mock">
-        <div class="section-header">
-          <h3>🎭 出站二进制 Mock 资产与 dynamicpb 响应在线重编码</h3>
-          <span class="sub-hint" id="mock-edit-status">在线篡改 JSON 后自动重算 Checksum 自愈</span>
+      <!-- 区域 3: 底层协议帧头与二进制 Hex 排障抽屉 (默认折叠) -->
+      <div class="protocol-drawer-section" id="protocol-drawer-box" style="display: none;">
+        <div class="protocol-drawer-toggle" id="btn-toggle-protocol-drawer">
+          <span id="protocol-drawer-status-text">🔧 底层协议帧头与二进制 Hex 详情 (协议校验正常 ✓ | 点击展开排障)</span>
+          <span id="protocol-drawer-arrow">▼ 展开</span>
         </div>
-        <div class="toolbar-row">
-          <select id="select-mock-asset" class="input-ctrl">
-            <option value="">-- 先完成录制以查看出站 Mock 资产 --</option>
-          </select>
+
+        <div class="protocol-drawer-content" id="protocol-drawer-content" style="display: none;">
+          <div class="byte-matrix-title" id="byte-matrix-caption">帧头字节色块解剖图 (Wire Header Bytes)</div>
+          <div class="byte-matrix" id="header-byte-matrix"></div>
+          <div class="header-kv-grid" id="header-kv-grid"></div>
+          <div class="code-panels" style="margin-top: 8px;">
+            <div class="code-box">
+              <div class="code-title">原始 Wire Hex &amp; Base64 编码</div>
+              <pre id="detail-raw-hex">--</pre>
+            </div>
+          </div>
         </div>
-        <textarea id="textarea-mock-json" class="code-textarea" rows="8"></textarea>
-        <div class="toolbar-row" style="margin-top: 10px;">
-          <button type="button" class="btn btn-sm btn-primary" id="btn-save-mock">💾 保存并重算二进制 Checksum</button>
-        </div>
+      </div>
+
+      <!-- 占位空提示 -->
+      <div class="empty-workbench-hint" id="empty-workbench-hint">
+        👈 请从左侧列表中点击任意业务调用用例，或点击上方【▶ 开始监控录制】在客户端发起调用！
       </div>
     </section>
   </main>

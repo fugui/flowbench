@@ -8,9 +8,11 @@
   var capturedFrames = [];
   var recordedMocks = [];
   var selectedTrace = null;
+  var selectedStep = null;
   var selectedFrame = null;
   var activeFramingSpec = null;
   var activeFilter = "";
+  var isProtocolDrawerOpen = false;
 
   function el(tag, className, text) {
     var node = document.createElement(tag);
@@ -201,14 +203,14 @@
       .catch(function () {});
   }
 
-  // 渲染端到端调用事务树
+  // 渲染业务请求调用用例列表 (Business Calls)
   function renderTracesList(traces) {
     var container = document.getElementById("trace-items-list");
     var emptyHint = document.getElementById("trace-empty-hint");
     if (!container) return;
 
     var list = traces || [];
-    setText("trace-count-label", "共 " + list.length + " 笔调用");
+    setText("trace-count-label", "共 " + list.length + " 笔用例");
 
     if (list.length === 0) {
       if (emptyHint) emptyHint.style.display = "block";
@@ -220,7 +222,8 @@
 
     for (var i = list.length - 1; i >= 0; i--) {
       (function (tr) {
-        var card = el("div", "trace-card " + (selectedTrace && selectedTrace.trace_id === tr.trace_id ? "active-trace" : ""));
+        var isSelected = selectedTrace && selectedTrace.trace_id === tr.trace_id;
+        var card = el("div", "trace-card " + (isSelected ? "active-trace" : ""));
 
         // 头部
         var head = el("div", "trace-head");
@@ -228,9 +231,8 @@
         hLeft.appendChild(el("span", "th-reqid", "#" + tr.request_id));
         hLeft.appendChild(el("span", "th-op", tr.op_name));
 
-        var statusBadgeCls = tr.status_name === "StatusOK" || tr.status_code === 200 || tr.status_code === 0x12
-          ? "badge badge-pass"
-          : "badge badge-fail";
+        var isOk = tr.status_name === "StatusOK" || tr.status_code === 200 || tr.status_code === 0x12;
+        var statusBadgeCls = isOk ? "badge badge-pass" : "badge badge-fail";
         hLeft.appendChild(el("span", statusBadgeCls, tr.status_name || "DONE"));
         head.appendChild(hLeft);
 
@@ -239,64 +241,72 @@
         head.appendChild(hRight);
         card.appendChild(head);
 
-        // 子调用树
+        // 业务概要摘要
         var subBox = el("div", "trace-sub-items");
 
-        // Ingress 请求简要
-        var inReqRow = el("div", "sub-row");
-        inReqRow.appendChild(el("span", "sub-tag", "⬆️ Ingress"));
-        var inReqTxt = tr.ingress_req && tr.ingress_req.protobuf_json
-          ? JSON.stringify(tr.ingress_req.protobuf_json).slice(0, 45) + "..."
-          : tr.ingress_req.header.op_name;
-        inReqRow.appendChild(el("span", "sub-op", inReqTxt));
-        subBox.appendChild(inReqRow);
+        // 1. 入站请求摘要
+        var inRow = el("div", "sub-row");
+        inRow.appendChild(el("span", "sub-tag", "💻 入站调用"));
+        var inTxt = tr.ingress_req && tr.ingress_req.protobuf_json
+          ? JSON.stringify(tr.ingress_req.protobuf_json).slice(0, 42) + "..."
+          : tr.ingress_req ? tr.ingress_req.header.op_name : tr.op_name;
+        inRow.appendChild(el("span", "sub-op", inTxt));
+        subBox.appendChild(inRow);
 
-        // 各个 Egress 子调用
+        // 2. 下游交互统计 (直观展示下游微服务别名或组件)
         var subCalls = tr.sub_calls || [];
-        for (var s = 0; s < subCalls.length; s++) {
-          var sc = subCalls[s];
-          var scRow = el("div", "sub-row");
-          scRow.appendChild(el("span", "sub-tag", "➡️ " + (sc.backend_name || sc.target_backend || "Egress")));
-          scRow.appendChild(el("span", "sub-op", sc.op_name));
-          scRow.appendChild(el("span", "sub-lat", (sc.duration_ms || 0).toFixed(1) + "ms"));
-          subBox.appendChild(scRow);
+        var backRow = el("div", "sub-row");
+        backRow.appendChild(el("span", "sub-tag", "🗄️ 下游交互"));
+        if (subCalls.length > 0) {
+          var backNames = [];
+          for (var s = 0; s < subCalls.length; s++) {
+            var bName = subCalls[s].backend_name || subCalls[s].target_backend || "下游依赖";
+            if (backNames.indexOf(bName) === -1) backNames.push(bName);
+          }
+          backRow.appendChild(el("span", "sub-op", subCalls.length + " 次 (" + backNames.join(", ") + ")"));
+        } else {
+          backRow.appendChild(el("span", "sub-op", "无下游依赖 (短路本地处理)"));
         }
+        subBox.appendChild(backRow);
 
-        // Ingress 响应简要
-        if (tr.ingress_resp) {
-          var inRespRow = el("div", "sub-row");
-          inRespRow.appendChild(el("span", "sub-tag", "⬇️ 响应"));
-          var inRespTxt = tr.ingress_resp.protobuf_json
-            ? JSON.stringify(tr.ingress_resp.protobuf_json).slice(0, 45) + "..."
-            : "CRC32=" + tr.ingress_resp.header.crc32_hex;
-          inRespRow.appendChild(el("span", "sub-op", inRespTxt));
-          subBox.appendChild(inRespRow);
+        // 3. 重放回归标记
+        if (tr.last_replay) {
+          var repRow = el("div", "sub-row");
+          repRow.appendChild(el("span", "sub-tag", "🚀 重放状态"));
+          if (tr.last_replay.passed) {
+            repRow.appendChild(el("span", "badge badge-pass", "✅ 回归一致"));
+          } else {
+            var diffCnt = tr.last_replay.field_diffs ? tr.last_replay.field_diffs.length : 1;
+            repRow.appendChild(el("span", "badge badge-fail", "⚠️ 差异 " + diffCnt + " 处"));
+          }
+          subBox.appendChild(repRow);
         }
 
         card.appendChild(subBox);
 
-        // 操作栏
+        // 操作按钮行
         var actRow = el("div", "trace-actions-row");
-        var btnInspect = el("button", "btn btn-xs btn-outline", "🔬 解剖");
-        btnInspect.type = "button";
-        btnInspect.addEventListener("click", function (e) {
+        var btnUML = el("button", "btn btn-xs btn-outline", "📊 业务时序");
+        btnUML.type = "button";
+        btnUML.addEventListener("click", function (e) {
           e.stopPropagation();
-          selectTraceForInspect(tr);
+          selectTrace(tr);
         });
-        actRow.appendChild(btnInspect);
+        actRow.appendChild(btnUML);
 
         var btnReplay = el("button", "btn btn-xs btn-primary", "🚀 原地重放");
         btnReplay.type = "button";
         btnReplay.addEventListener("click", function (e) {
           e.stopPropagation();
-          selectTraceForReplay(tr);
+          selectTrace(tr);
+          executeReplayForTrace(null);
         });
         actRow.appendChild(btnReplay);
 
         card.appendChild(actRow);
 
         card.addEventListener("click", function () {
-          selectTraceForInspect(tr);
+          selectTrace(tr);
         });
 
         container.appendChild(card);
@@ -304,60 +314,291 @@
     }
   }
 
-  function selectTraceForInspect(tr) {
+  function selectTrace(tr) {
     selectedTrace = tr;
-    switchTab("panel-inspector");
-    if (tr.ingress_req) {
-      renderFrameDetail(tr.ingress_req);
-    } else if (tr.ingress_resp) {
-      renderFrameDetail(tr.ingress_resp);
-    }
-    renderTracesList(transactionTraces);
-  }
 
-  function selectTraceForReplay(tr) {
-    selectedTrace = tr;
-    switchTab("panel-replayer");
-
-    setText("replay-op-tag", "#" + tr.request_id + " " + tr.op_name);
+    setText("current-trace-title", "用例 #" + tr.request_id + " " + tr.op_name);
     setText(
-      "replay-meta-text",
-      "录制耗时: " + (tr.duration_ms || 0).toFixed(2) + "ms | 状态: " + tr.status_name + " | 子调用: " + (tr.sub_calls ? tr.sub_calls.length : 0) + " 个"
+      "current-trace-meta",
+      "总耗时: " +
+        (tr.duration_ms || 0).toFixed(2) +
+        "ms | 状态: " +
+        tr.status_name +
+        " | 下游交互: " +
+        (tr.sub_calls ? tr.sub_calls.length : 0) +
+        " 次"
     );
 
-    var ta = document.getElementById("textarea-replay-payload");
-    if (ta && tr.ingress_req && tr.ingress_req.protobuf_json) {
-      ta.value = JSON.stringify(tr.ingress_req.protobuf_json, null, 2);
+    var qBtn = document.getElementById("btn-quick-replay-trace");
+    if (qBtn) qBtn.style.display = "inline-block";
+
+    var umlBox = document.getElementById("uml-sequence-box");
+    if (umlBox) umlBox.style.display = "block";
+
+    var bizBox = document.getElementById("business-payload-box");
+    if (bizBox) bizBox.style.display = "block";
+
+    var protoBox = document.getElementById("protocol-drawer-box");
+    if (protoBox) protoBox.style.display = "block";
+
+    var emptyHint = document.getElementById("empty-workbench-hint");
+    if (emptyHint) emptyHint.style.display = "none";
+
+    // 渲染重放比对结果
+    if (tr.last_replay) {
+      renderReplayResult(tr.last_replay);
+    } else {
+      var resBox = document.getElementById("replay-result-box");
+      if (resBox) resBox.style.display = "none";
     }
 
-    var resBox = document.getElementById("replay-result-box");
-    if (resBox) resBox.style.display = "none";
+    // 渲染 UML 时序图
+    var umlData = tr.uml_diagram || buildFallbackUML(tr);
+    renderUMLDiagram(umlData);
+
+    // 默认高亮选择第 1 步 (入站请求)
+    if (umlData.steps && umlData.steps.length > 0) {
+      selectUMLStep(umlData.steps[0]);
+    }
 
     renderTracesList(transactionTraces);
   }
 
-  function triggerSingleReplay() {
-    if (!selectedTrace) {
-      alert("请先从左侧选择一条调用事务！");
-      return;
+  function buildFallbackUML(tr) {
+    var participants = [
+      { id: "caller", display_name: "业务调用端 (Caller)", role: "CALLER" },
+      { id: "sut", display_name: "目标服务 (SUT:9100)", role: "SUT" }
+    ];
+    var subCalls = tr.sub_calls || [];
+    for (var i = 0; i < subCalls.length; i++) {
+      var bName = subCalls[i].backend_name || subCalls[i].target_backend || "127.0.0.1:9200";
+      participants.push({
+        id: "backend-" + i,
+        display_name: bName,
+        role: "BACKEND"
+      });
     }
 
-    var ta = document.getElementById("textarea-replay-payload");
-    var overrideJSON = null;
-    if (ta && ta.value.trim()) {
-      try {
-        overrideJSON = JSON.parse(ta.value.trim());
-      } catch (err) {
-        alert("请求载荷 JSON 格式错误: " + String(err));
-        return;
+    var steps = [];
+    var stepIdx = 1;
+    steps.push({
+      step_index: stepIdx++,
+      from_id: "caller",
+      to_id: "sut",
+      from_name: "业务调用端 (Caller)",
+      to_name: "目标服务 (SUT)",
+      is_return: false,
+      op_name: tr.op_name,
+      duration_ms: 0,
+      frame_event: tr.ingress_req
+    });
+
+    for (var j = 0; j < subCalls.length; j++) {
+      var sc = subCalls[j];
+      var backID = "backend-" + j;
+      var backName = sc.backend_name || sc.target_backend || "下游组件";
+      steps.push({
+        step_index: stepIdx++,
+        from_id: "sut",
+        to_id: backID,
+        from_name: "目标服务 (SUT)",
+        to_name: backName,
+        is_return: false,
+        op_name: sc.op_name,
+        duration_ms: 0,
+        frame_event: sc.egress_req
+      });
+      if (sc.egress_resp) {
+        steps.push({
+          step_index: stepIdx++,
+          from_id: backID,
+          to_id: "sut",
+          from_name: backName,
+          to_name: "目标服务 (SUT)",
+          is_return: true,
+          is_mockable: true,
+          mock_asset_id: "session-mock-" + sc.sub_call_id,
+          op_name: sc.egress_resp.header.op_name,
+          duration_ms: sc.duration_ms,
+          frame_event: sc.egress_resp
+        });
       }
     }
 
-    var btn = document.getElementById("btn-trigger-single-replay");
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = "🚀 正在重放执行中...";
+    if (tr.ingress_resp) {
+      steps.push({
+        step_index: stepIdx++,
+        from_id: "sut",
+        to_id: "caller",
+        from_name: "目标服务 (SUT)",
+        to_name: "业务调用端 (Caller)",
+        is_return: true,
+        op_name: tr.ingress_resp.header.op_name,
+        duration_ms: tr.duration_ms,
+        frame_event: tr.ingress_resp
+      });
     }
+
+    return {
+      trace_id: tr.trace_id,
+      request_id: tr.request_id,
+      total_duration_ms: tr.duration_ms,
+      participants: participants,
+      steps: steps
+    };
+  }
+
+  function renderUMLDiagram(umlData) {
+    var container = document.getElementById("uml-canvas-container");
+    if (!container) return;
+    container.replaceChildren();
+
+    var participants = umlData.participants || [];
+    var steps = umlData.steps || [];
+
+    // 1. 生命线参与者头部
+    var pHeader = el("div", "uml-participants-header");
+    pHeader.style.gridTemplateColumns = "repeat(" + Math.max(participants.length, 2) + ", minmax(130px, 1fr))";
+
+    for (var p = 0; p < participants.length; p++) {
+      var pt = participants[p];
+      var roleCls = "role-backend";
+      if (pt.role === "CALLER") roleCls = "role-caller";
+      else if (pt.role === "SUT") roleCls = "role-sut";
+
+      var pBox = el("div", "uml-participant-box " + roleCls, pt.display_name);
+      pBox.title = pt.endpoint || pt.display_name;
+      pHeader.appendChild(pBox);
+    }
+    container.appendChild(pHeader);
+
+    // 2. 步骤消息流 (交互式连线)
+    var stepsFlow = el("div", "uml-steps-flow");
+
+    for (var s = 0; s < steps.length; s++) {
+      (function (st) {
+        var isAct = selectedStep && selectedStep.step_index === st.step_index;
+        var row = el("div", "uml-step-row " + (isAct ? "active-step" : ""));
+        row.id = "uml-step-row-" + st.step_index;
+
+        // 序号圆圈
+        var numBadge = el("span", "uml-step-num", String(st.step_index));
+        row.appendChild(numBadge);
+
+        // 内容
+        var content = el("div", "uml-step-content");
+
+        // 端点标签: From ──▶ To
+        var endp = el("div", "uml-step-endpoints");
+        endp.appendChild(el("span", "uml-step-from", st.from_name));
+
+        var arrow = el("span", "uml-arrow-indicator " + (st.is_return ? "is-return" : ""), st.is_return ? " ◀┄┄ " : " ──▶ ");
+        endp.appendChild(arrow);
+
+        endp.appendChild(el("span", "uml-step-to", st.to_name));
+        content.appendChild(endp);
+
+        // 消息名称
+        var opTag = el("span", "uml-step-op", st.op_name);
+        content.appendChild(opTag);
+
+        // 耗时与 Mock 标签
+        var meta = el("div", "uml-step-meta");
+        if (st.duration_ms > 0) {
+          meta.appendChild(el("span", "sub-lat", st.duration_ms.toFixed(2) + "ms"));
+        }
+        if (st.is_mockable) {
+          meta.appendChild(el("span", "mock-badge-tag", "🎭 可Mock"));
+        }
+        content.appendChild(meta);
+
+        row.appendChild(content);
+
+        row.addEventListener("click", function () {
+          selectUMLStep(st);
+        });
+
+        stepsFlow.appendChild(row);
+      })(steps[s]);
+    }
+
+    container.appendChild(stepsFlow);
+  }
+
+  function selectUMLStep(st) {
+    selectedStep = st;
+
+    // 更新 active-step 样式
+    var allRows = document.querySelectorAll(".uml-step-row");
+    for (var i = 0; i < allRows.length; i++) {
+      allRows[i].classList.remove("active-step");
+    }
+    var curRow = document.getElementById("uml-step-row-" + st.step_index);
+    if (curRow) curRow.classList.add("active-step");
+
+    // 更新业务面板头部
+    setText("bpc-step-num", "步骤 " + st.step_index);
+    setText("bpc-step-title", st.from_name + (st.is_return ? " ◀┄┄ " : " ──▶ ") + st.to_name + " : " + st.op_name);
+
+    // 载入业务 JSON
+    var ta = document.getElementById("textarea-step-payload");
+    if (ta) {
+      var pbJSON = st.frame_event && st.frame_event.protobuf_json ? st.frame_event.protobuf_json : {};
+      ta.value = JSON.stringify(pbJSON, null, 2);
+    }
+
+    // 动态调整操作按钮与提示词
+    var btnReplay = document.getElementById("btn-step-replay");
+    var btnMock = document.getElementById("btn-step-mock");
+
+    if (st.step_index === 1 || st.from_id === "caller") {
+      if (btnReplay) btnReplay.style.display = "inline-block";
+      if (btnMock) btnMock.style.display = "none";
+      setText("bpc-hint-text", "💡 当前为入站请求：可直接修改下方业务 JSON 字段（如数量、用户ID），点击【🚀 用此入参重放测试 SUT】验证单组件分支逻辑。");
+    } else if (st.is_mockable) {
+      if (btnReplay) btnReplay.style.display = "none";
+      if (btnMock) btnMock.style.display = "inline-block";
+      setText("bpc-hint-text", "💡 当前为下游返回：可直接修改下方返回字段（如信用分、库存），保存后立即作为离线 Mock 挡板重放，验证 SUT 异常降级分支。");
+    } else {
+      if (btnReplay) btnReplay.style.display = "inline-block";
+      if (btnMock) btnMock.style.display = "none";
+      setText("bpc-hint-text", "💡 当前为内部步骤：展示 dynamicpb 反序列化业务明文字段。");
+    }
+
+    // 联动更新底层帧头排障抽屉
+    if (st.frame_event) {
+      renderFrameDetail(st.frame_event);
+      var crcOk = st.frame_event.crc32_valid;
+      var drawerToggle = document.getElementById("btn-toggle-protocol-drawer");
+      if (drawerToggle) {
+        if (!crcOk) {
+          drawerToggle.classList.add("has-error");
+          setText("protocol-drawer-status-text", "⚠️ 步骤 " + st.step_index + " 底层帧头校验异常 (CRC32 不匹配) | 点击排障");
+          // 异常时自动展开抽屉
+          var drawerContent = document.getElementById("protocol-drawer-content");
+          if (drawerContent) {
+            drawerContent.style.display = "block";
+            isProtocolDrawerOpen = true;
+            setText("protocol-drawer-arrow", "▲ 收起");
+          }
+        } else {
+          drawerToggle.classList.remove("has-error");
+          setText("protocol-drawer-status-text", "🔧 底层协议帧头与二进制 Hex (校验正常 ✓ | 点击展开排障)");
+        }
+      }
+    }
+  }
+
+  function executeReplayForTrace(overrideJSON) {
+    if (!selectedTrace) {
+      alert("请先从左侧选择一条业务调用用例！");
+      return;
+    }
+
+    var btnReplay = document.getElementById("btn-step-replay");
+    var btnQuick = document.getElementById("btn-quick-replay-trace");
+    if (btnReplay) { btnReplay.disabled = true; btnReplay.textContent = "🚀 正在重放执行中..."; }
+    if (btnQuick) { btnQuick.disabled = true; btnQuick.textContent = "🚀 正在重放执行中..."; }
 
     fetch("/api/replay/single", {
       method: "POST",
@@ -368,20 +609,67 @@
         mock_egress: true
       })
     })
-      .then(function (r) {
-        return r.json();
-      })
+      .then(function (r) { return r.json(); })
       .then(function (res) {
         renderReplayResult(res);
+        selectedTrace.last_replay = res;
+        for (var i = 0; i < transactionTraces.length; i++) {
+          if (transactionTraces[i].trace_id === selectedTrace.trace_id) {
+            transactionTraces[i].last_replay = res;
+            break;
+          }
+        }
+        renderTracesList(transactionTraces);
       })
       .catch(function (err) {
         alert("单调用重放执行失败: " + String(err));
       })
       .finally(function () {
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = "🚀 立即原地自愈重放 (Replay Single Call)";
-        }
+        if (btnReplay) { btnReplay.disabled = false; btnReplay.textContent = "🚀 用此入参重放测试 SUT"; }
+        if (btnQuick) { btnQuick.disabled = false; btnQuick.textContent = "🚀 原地重放此用例"; }
+      });
+  }
+
+  function handleSaveMockAndReplay() {
+    if (!selectedStep || !selectedStep.is_mockable) return;
+    var ta = document.getElementById("textarea-step-payload");
+    if (!ta || !ta.value.trim()) return;
+
+    var mockJSON = null;
+    try {
+      mockJSON = JSON.parse(ta.value.trim());
+    } catch (err) {
+      alert("下游 Mock 响应 JSON 语法错误: " + String(err));
+      return;
+    }
+
+    var mockID = selectedStep.mock_asset_id;
+    if (!mockID) {
+      alert("未找到该步骤关联的 MockID");
+      return;
+    }
+
+    var btnMock = document.getElementById("btn-step-mock");
+    if (btnMock) { btnMock.disabled = true; btnMock.textContent = "💾 正在保存 Mock 并触发重放..."; }
+
+    fetch("/api/mocks/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mock_id: mockID,
+        response_json: mockJSON
+      })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function () {
+        // 保存成功后立即触发单调用重放验证
+        executeReplayForTrace(null);
+      })
+      .catch(function (err) {
+        alert("保存下游 Mock 挡板失败: " + String(err));
+      })
+      .finally(function () {
+        if (btnMock) { btnMock.disabled = false; btnMock.textContent = "💾 保存并作为离线 Mock 挡板重放"; }
       });
   }
 
@@ -425,27 +713,6 @@
     }
     if (res.actual_response) {
       setText("replay-actual-json", JSON.stringify(res.actual_response.protobuf_json || {}, null, 2));
-    }
-  }
-
-  function switchTab(targetPanelId) {
-    var panels = document.querySelectorAll(".tab-panel");
-    for (var i = 0; i < panels.length; i++) {
-      panels[i].classList.remove("active");
-    }
-    var target = document.getElementById(targetPanelId);
-    if (target) target.classList.add("active");
-
-    var btns = document.querySelectorAll(".tab-btn");
-    for (var j = 0; j < btns.length; j++) {
-      btns[j].classList.remove("active");
-    }
-    if (targetPanelId === "panel-inspector") {
-      document.getElementById("tab-btn-inspector").classList.add("active");
-    } else if (targetPanelId === "panel-replayer") {
-      document.getElementById("tab-btn-replayer").classList.add("active");
-    } else if (targetPanelId === "panel-mock") {
-      document.getElementById("tab-btn-mock").classList.add("active");
     }
   }
 
@@ -778,19 +1045,72 @@
       document.getElementById("sandbox-drawer").style.display = "none";
     });
 
-    // Tab 切换
-    document.getElementById("tab-btn-inspector").addEventListener("click", function () {
-      switchTab("panel-inspector");
-    });
-    document.getElementById("tab-btn-replayer").addEventListener("click", function () {
-      switchTab("panel-replayer");
-    });
-    document.getElementById("tab-btn-mock").addEventListener("click", function () {
-      switchTab("panel-mock");
-    });
+    // 原地重放与 Mock 挡板事件绑定
+    var btnStepReplay = document.getElementById("btn-step-replay");
+    if (btnStepReplay) {
+      btnStepReplay.addEventListener("click", function () {
+        var ta = document.getElementById("textarea-step-payload");
+        var ov = null;
+        if (ta && ta.value.trim() && selectedStep && selectedStep.step_index === 1) {
+          try {
+            ov = JSON.parse(ta.value.trim());
+          } catch (e) {
+            alert("请求 JSON 语法错误: " + String(e));
+            return;
+          }
+        }
+        executeReplayForTrace(ov);
+      });
+    }
 
-    // 单调用重放
-    document.getElementById("btn-trigger-single-replay").addEventListener("click", triggerSingleReplay);
+    var btnQuickReplay = document.getElementById("btn-quick-replay-trace");
+    if (btnQuickReplay) {
+      btnQuickReplay.addEventListener("click", function () {
+        executeReplayForTrace(null);
+      });
+    }
+
+    var btnStepMock = document.getElementById("btn-step-mock");
+    if (btnStepMock) {
+      btnStepMock.addEventListener("click", handleSaveMockAndReplay);
+    }
+
+    // 底层协议抽屉切换
+    var drawerToggle = document.getElementById("btn-toggle-protocol-drawer");
+    if (drawerToggle) {
+      drawerToggle.addEventListener("click", function () {
+        isProtocolDrawerOpen = !isProtocolDrawerOpen;
+        var content = document.getElementById("protocol-drawer-content");
+        if (content) {
+          content.style.display = isProtocolDrawerOpen ? "block" : "none";
+        }
+        setText("protocol-drawer-arrow", isProtocolDrawerOpen ? "▲ 收起" : "▼ 展开");
+      });
+    }
+
+    // 原始帧平铺流水切换
+    var btnRawFrames = document.getElementById("btn-view-raw-frames");
+    var isRawFramesOpen = false;
+    if (btnRawFrames) {
+      btnRawFrames.addEventListener("click", function () {
+        isRawFramesOpen = !isRawFramesOpen;
+        var rfView = document.getElementById("raw-frames-view");
+        var trView = document.getElementById("trace-items-list");
+        if (rfView) rfView.style.display = isRawFramesOpen ? "block" : "none";
+        if (trView) trView.style.display = isRawFramesOpen ? "none" : "block";
+        btnRawFrames.textContent = isRawFramesOpen ? "📡 业务调用用例" : "📋 原始帧流水";
+      });
+    }
+
+    // 兼容历史按钮 (若存在)
+    var tabInsp = document.getElementById("tab-btn-inspector");
+    if (tabInsp) tabInsp.addEventListener("click", function () { switchTab("panel-inspector"); });
+    var tabRepl = document.getElementById("tab-btn-replayer");
+    if (tabRepl) tabRepl.addEventListener("click", function () { switchTab("panel-replayer"); });
+    var tabMock = document.getElementById("tab-btn-mock");
+    if (tabMock) tabMock.addEventListener("click", function () { switchTab("panel-mock"); });
+    var btnLegacyReplay = document.getElementById("btn-trigger-single-replay");
+    if (btnLegacyReplay) btnLegacyReplay.addEventListener("click", function () { executeReplayForTrace(null); });
 
     // 进程扫描
     document.getElementById("btn-refresh-procs").addEventListener("click", scanProcesses);

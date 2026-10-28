@@ -38,6 +38,8 @@ func (e *Engine) ingestFrameIntoSession(ev CapturedFrameEvent) {
 			IngressReq: ev,
 			SubCalls:   make([]SubCallDetail, 0),
 		}
+		diag := BuildUMLDiagram(*trace, e.attachedTarget.Backends, e.attachedTarget.ProcessName, e.attachedTarget.IngressOrigPort)
+		trace.UMLDiagram = &diag
 		e.activeTraces[reqID] = trace
 		e.currentSession.Traces = append(e.currentSession.Traces, *trace)
 		e.currentSession.TotalTraces = len(e.currentSession.Traces)
@@ -66,6 +68,33 @@ func (e *Engine) ingestFrameIntoSession(ev CapturedFrameEvent) {
 					respCopy := ev
 					tr.SubCalls[i].EgressResp = &respCopy
 					tr.SubCalls[i].DurationMs = ev.LatencyMs
+
+					// 实时注入至引擎出站 Mock 缓存池，供原地重放与 Mock 在线篡改实验
+					sc := tr.SubCalls[i]
+					semKey := fmt.Sprintf("target=%s|op=%s", sc.TargetBackend, sc.OpName)
+					mockID := fmt.Sprintf("session-mock-%s", sc.SubCallID)
+					asset := &RecordedMockAsset{
+						MockID:        mockID,
+						SemanticKey:   semKey,
+						OpName:        sc.OpName,
+						TargetBackend: sc.TargetBackend,
+						BackendName:   sc.BackendName,
+						OriginalReq:   sc.EgressReq,
+						OriginalResp:  respCopy,
+					}
+					e.mu.Lock()
+					e.egressMocks[semKey] = asset
+					found := false
+					for _, oid := range e.egressMockOrder {
+						if oid == mockID {
+							found = true
+							break
+						}
+					}
+					if !found {
+						e.egressMockOrder = append(e.egressMockOrder, mockID)
+					}
+					e.mu.Unlock()
 					break
 				}
 			}
@@ -89,8 +118,10 @@ func (e *Engine) ingestFrameIntoSession(ev CapturedFrameEvent) {
 	}
 }
 
-// syncTraceToSession 同步更新会话切片中的事务记录
+// syncTraceToSession 同步更新会话切片中的事务记录并更新 UML 时序图
 func (e *Engine) syncTraceToSession(tr *TransactionTrace) {
+	diag := BuildUMLDiagram(*tr, e.attachedTarget.Backends, e.attachedTarget.ProcessName, e.attachedTarget.IngressOrigPort)
+	tr.UMLDiagram = &diag
 	for i := range e.currentSession.Traces {
 		if e.currentSession.Traces[i].RequestID == tr.RequestID {
 			e.currentSession.Traces[i] = *tr

@@ -1,6 +1,6 @@
 {
   "generated_by": "flowbench-monitor (native cilium/ebpf protocol-aware engine)",
-  "updated_at": "2026-10-28T09:26:53+08:00",
+  "updated_at": "2026-10-28T10:57:53+08:00",
   "ingress_test_cases": [
     {
       "scenario_id": "SC-01",
@@ -9,7 +9,7 @@
       "op_name": "OpPingReq(0x01) -\u003e OpPongResp(0x02)",
       "request": {
         "seq_id": 1001,
-        "timestamp": "09:26:53.718",
+        "timestamp": "10:57:53.757",
         "direction": "INGRESS_REQ",
         "mode": "RECORD",
         "header": {
@@ -68,7 +68,7 @@
       },
       "response": {
         "seq_id": 1001,
-        "timestamp": "09:26:53.718",
+        "timestamp": "10:57:53.757",
         "direction": "INGRESS_RESP",
         "mode": "RECORD",
         "header": {
@@ -125,7 +125,7 @@
         },
         "raw_wire_hex": "FB0101020100000000000000000003E90000003A945700F608C8011210666C6F7762656E63682D7365727665721A14504F4E473A666C6F7762656E63682D70726F6265220753455256494E472881E2CFAA06",
         "raw_base64": "+wEBAgEAAAAAAAAAAAAD6QAAADqUVwD2CMgBEhBmbG93YmVuY2gtc2VydmVyGhRQT05HOmZsb3diZW5jaC1wcm9iZSIHU0VSVklORyiB4s+qBg==",
-        "latency_ms": 1.057
+        "latency_ms": 2.857
       },
       "raw_req_hex": "fb0101010100000000000000000003e900000029aed6a87e0a10666c6f7762656e63682d636c69656e74120f666c6f7762656e63682d70726f62651880e2cfaa06",
       "raw_resp_hex": "fb0101020100000000000000000003e90000003a945700f608c8011210666c6f7762656e63682d7365727665721a14504f4e473a666c6f7762656e63682d70726f6265220753455256494e472881e2cfaa06"
@@ -137,7 +137,7 @@
       "op_name": "OpOrderQuoteReq(0x11) -\u003e OpOrderQuoteResp(0x12)",
       "request": {
         "seq_id": 1002,
-        "timestamp": "09:26:53.719",
+        "timestamp": "10:57:53.760",
         "direction": "INGRESS_REQ",
         "mode": "RECORD",
         "header": {
@@ -199,7 +199,7 @@
       },
       "response": {
         "seq_id": 1002,
-        "timestamp": "09:26:53.719",
+        "timestamp": "10:57:53.760",
         "direction": "INGRESS_RESP",
         "mode": "RECORD",
         "header": {
@@ -266,7 +266,7 @@
         },
         "raw_wire_hex": "FB0101120100000000000000000003EA00000095C7FFC0A208C80112224F726465722071756F74652070726F63657373656420616E6420617070726F7665641A18E4BC81E4B89AE7BAA7E58D83E58586E4BAA4E68DA2E69CBA20904E28D0860330E43238ECD30240B21448E820508689035A08415050524F564544620857482D53482D30316A1037613936343232666438663937343566720E74726163652D6465742D3130303278E5E2CFAA06",
         "raw_base64": "+wEBEgEAAAAAAAAAAAAD6gAAAJXH/8CiCMgBEiJPcmRlciBxdW90ZSBwcm9jZXNzZWQgYW5kIGFwcHJvdmVkGhjkvIHkuJrnuqfljYPlhYbkuqTmjaLmnLogkE4o0IYDMOQyOOzTAkCyFEjoIFCGiQNaCEFQUFJPVkVEYghXSC1TSC0wMWoQN2E5NjQyMmZkOGY5NzQ1ZnIOdHJhY2UtZGV0LTEwMDJ45eLPqgY=",
-        "latency_ms": 1.486
+        "latency_ms": 2.271
       },
       "raw_req_hex": "fb0101110100000000000000000003ea0000002c76c6cedf0a0b5553522d5649502d303031120a534b552d50524f2d3031180520022a07434e2d4541535430e4e2cfaa06",
       "raw_resp_hex": "fb0101120100000000000000000003ea00000095c7ffc0a208c80112224f726465722071756f74652070726f63657373656420616e6420617070726f7665641a18e4bc81e4b89ae7baa7e58d83e58586e4baa4e68da2e69cba20904e28d0860330e43238ecd30240b21448e820508689035a08415050524f564544620857482d53482d30316a1037613936343232666438663937343566720e74726163652d6465742d3130303278e5e2cfaa06"
@@ -278,7 +278,7 @@
       "op_name": "OpOrderQuoteReq(0x11) -\u003e OpOrderQuoteResp(0x12)",
       "request": {
         "seq_id": 1003,
-        "timestamp": "09:26:53.720",
+        "timestamp": "10:57:53.761",
         "direction": "INGRESS_REQ",
         "mode": "RECORD",
         "header": {
@@ -340,7 +340,7 @@
       },
       "response": {
         "seq_id": 1003,
-        "timestamp": "09:26:53.721",
+        "timestamp": "10:57:53.761",
         "direction": "INGRESS_RESP",
         "mode": "RECORD",
         "header": {
@@ -407,7 +407,7 @@
         },
         "raw_wire_hex": "FB0101120100000000000000000003EB00000081AE6F59A208900312415072652D76616C69646174696F6E206661696C65643A207175616E74697479206D757374206265206265747765656E203120616E6420313030302C20676F7420305A1152454A45435445445F505245434845434B6A1062666335636663393763313066313632720E74726163652D6465742D3130303378C9E3CFAA06",
         "raw_base64": "+wEBEgEAAAAAAAAAAAAD6wAAAIGub1miCJADEkFQcmUtdmFsaWRhdGlvbiBmYWlsZWQ6IHF1YW50aXR5IG11c3QgYmUgYmV0d2VlbiAxIGFuZCAxMDAwLCBnb3QgMFoRUkVKRUNURURfUFJFQ0hFQ0tqEGJmYzVjZmM5N2MxMGYxNjJyDnRyYWNlLWRldC0xMDAzeMnjz6oG",
-        "latency_ms": 0.82
+        "latency_ms": 0.967
       },
       "raw_req_hex": "fb0101110100000000000000000003eb0000002a73fbb7d50a0b5553522d5649502d303031120a534b552d50524f2d303120012a07434e2d4541535430c8e3cfaa06",
       "raw_resp_hex": "fb0101120100000000000000000003eb00000081ae6f59a208900312415072652d76616c69646174696f6e206661696c65643a207175616e74697479206d757374206265206265747765656e203120616e6420313030302c20676f7420305a1152454a45435445445f505245434845434b6a1062666335636663393763313066313632720e74726163652d6465742d3130303378c9e3cfaa06"
@@ -419,7 +419,7 @@
       "op_name": "OpOrderQuoteReq(0x11) -\u003e OpOrderQuoteResp(0x12)",
       "request": {
         "seq_id": 1004,
-        "timestamp": "09:26:53.722",
+        "timestamp": "10:57:53.762",
         "direction": "INGRESS_REQ",
         "mode": "RECORD",
         "header": {
@@ -481,7 +481,7 @@
       },
       "response": {
         "seq_id": 1004,
-        "timestamp": "09:26:53.722",
+        "timestamp": "10:57:53.762",
         "direction": "INGRESS_RESP",
         "mode": "RECORD",
         "header": {
@@ -548,7 +548,7 @@
         },
         "raw_wire_hex": "FB0101120100000000000000000003EC0000008F83501A4F089903122C496E73756666696369656E742073746F636B3A2072657175657374656420322C20617661696C61626C6520301A12E7B4A7E7BCBAE7AE97E58A9BE6A8A1E7BB8420D0860328A08D063088273898E60540C42C5A0E52454A45435445445F53544F434B6A1038366435346165316466373336376239720E74726163652D6465742D3130303478ADE4CFAA06",
         "raw_base64": "+wEBEgEAAAAAAAAAAAAD7AAAAI+DUBpPCJkDEixJbnN1ZmZpY2llbnQgc3RvY2s6IHJlcXVlc3RlZCAyLCBhdmFpbGFibGUgMBoS57Sn57y6566X5Yqb5qih57uEINCGAyigjQYwiCc4mOYFQMQsWg5SRUpFQ1RFRF9TVE9DS2oQODZkNTRhZTFkZjczNjdiOXIOdHJhY2UtZGV0LTEwMDR4reTPqgY=",
-        "latency_ms": 1.615
+        "latency_ms": 1.355
       },
       "raw_req_hex": "fb0101110100000000000000000003ec00000032615f149e0a0b5553522d5649502d3030311210534b552d4f55542d4f462d53544f434b180220012a07434e2d4541535430ace4cfaa06",
       "raw_resp_hex": "fb0101120100000000000000000003ec0000008f83501a4f089903122c496e73756666696369656e742073746f636b3a2072657175657374656420322c20617661696c61626c6520301a12e7b4a7e7bcbae7ae97e58a9be6a8a1e7bb8420d0860328a08d063088273898e60540c42c5a0e52454a45435445445f53544f434b6a1038366435346165316466373336376239720e74726163652d6465742d3130303478ade4cfaa06"
@@ -560,7 +560,7 @@
       "op_name": "OpOrderQuoteReq(0x11) -\u003e OpOrderQuoteResp(0x12)",
       "request": {
         "seq_id": 1005,
-        "timestamp": "09:26:53.725",
+        "timestamp": "10:57:53.764",
         "direction": "INGRESS_REQ",
         "mode": "RECORD",
         "header": {
@@ -622,7 +622,7 @@
       },
       "response": {
         "seq_id": 1005,
-        "timestamp": "09:26:53.725",
+        "timestamp": "10:57:53.764",
         "direction": "INGRESS_RESP",
         "mode": "RECORD",
         "header": {
@@ -689,7 +689,7 @@
         },
         "raw_wire_hex": "FB0101120100000000000000000003ED000000A976EA3A18089303123B4372656469742073636F72652035313020746F6F206C6F7720666F7220686967682D76616C7565206F72646572202838373830302063656E7473291A18E8BEB9E7BC98E8AEA1E7AE97E7BD91E585B3E88A82E782B92080F1042880F1043880F10440C83348B0095A1352454A45435445445F4C4F575F4352454449546A1030363237363038343836393065613062720E74726163652D6465742D313030357891E5CFAA06",
         "raw_base64": "+wEBEgEAAAAAAAAAAAAD7QAAAKl26joYCJMDEjtDcmVkaXQgc2NvcmUgNTEwIHRvbyBsb3cgZm9yIGhpZ2gtdmFsdWUgb3JkZXIgKDg3ODAwIGNlbnRzKRoY6L6557yY6K6h566X572R5YWz6IqC54K5IIDxBCiA8QQ4gPEEQMgzSLAJWhNSRUpFQ1RFRF9MT1dfQ1JFRElUahAwNjI3NjA4NDg2OTBlYTBicg50cmFjZS1kZXQtMTAwNXiR5c+qBg==",
-        "latency_ms": 2.117
+        "latency_ms": 1.91
       },
       "raw_req_hex": "fb0101110100000000000000000003ed0000002b1430ab1c0a0b5553522d4c4f572d303033120b534b552d454447452d303218012a0755532d574553543090e5cfaa06",
       "raw_resp_hex": "fb0101120100000000000000000003ed000000a976ea3a18089303123b4372656469742073636f72652035313020746f6f206c6f7720666f7220686967682d76616c7565206f72646572202838373830302063656e7473291a18e8beb9e7bc98e8aea1e7ae97e7bd91e585b3e88a82e782b92080f1042880f1043880f10440c83348b0095a1352454a45435445445f4c4f575f4352454449546a1030363237363038343836393065613062720e74726163652d6465742d313030357891e5cfaa06"
@@ -701,7 +701,7 @@
       "op_name": "OpCreditEvalReq(0x21) -\u003e OpCreditEvalResp(0x22)",
       "request": {
         "seq_id": 1006,
-        "timestamp": "09:26:53.729",
+        "timestamp": "10:57:53.766",
         "direction": "INGRESS_REQ",
         "mode": "RECORD",
         "header": {
@@ -762,7 +762,7 @@
       },
       "response": {
         "seq_id": 1006,
-        "timestamp": "09:26:53.729",
+        "timestamp": "10:57:53.766",
         "direction": "INGRESS_RESP",
         "mode": "RECORD",
         "header": {
@@ -824,7 +824,7 @@
         },
         "raw_wire_hex": "FB0101220100000000000000000003EE0000006265DCA59308C801121B437265646974206576616C756174696F6E20636F6D706C657465641A014120E80728C089DC0330C096B1023A08415050524F5645444210326237616263326163333934663134374A0E74726163652D6465742D3130303650F5E5CFAA06",
         "raw_base64": "+wEBIgEAAAAAAAAAAAAD7gAAAGJl3KWTCMgBEhtDcmVkaXQgZXZhbHVhdGlvbiBjb21wbGV0ZWQaAUEg6AcowIncAzDAlrECOghBUFBST1ZFREIQMmI3YWJjMmFjMzk0ZjE0N0oOdHJhY2UtZGV0LTEwMDZQ9eXPqgY=",
-        "latency_ms": 4.22
+        "latency_ms": 1.556
       },
       "raw_req_hex": "fb0101210100000000000000000003ee00000021e767d6cc0a0b5553522d5649502d30303110c096b1021880dac4092080897a28f4e5cfaa06",
       "raw_resp_hex": "fb0101220100000000000000000003ee0000006265dca59308c801121b437265646974206576616c756174696f6e20636f6d706c657465641a014120e80728c089dc0330c096b1023a08415050524f5645444210326237616263326163333934663134374a0e74726163652d6465742d3130303650f5e5cfaa06"
@@ -836,8 +836,8 @@
       "semantic_key": "op=0x31|pb=0a0a534b552d50524f2d3031120b5553522d5649502d3030311a07434e2d45415354",
       "op_name": "OpBackendOrderQueryReq(0x31) -\u003e OpBackendOrderQueryResp(0x32)",
       "original_req": {
-        "seq_id": 224,
-        "timestamp": "09:26:53.718",
+        "seq_id": 4,
+        "timestamp": "10:57:53.758",
         "direction": "EGRESS_REQ",
         "mode": "RECORD",
         "header": {
@@ -895,8 +895,8 @@
         "latency_ms": 0
       },
       "original_resp": {
-        "seq_id": 225,
-        "timestamp": "09:26:53.719",
+        "seq_id": 5,
+        "timestamp": "10:57:53.759",
         "direction": "EGRESS_RESP",
         "mode": "RECORD",
         "header": {
@@ -957,7 +957,7 @@
         },
         "raw_wire_hex": "FB0101320100000000000000000003EA0000003D8D8106950801120A534B552D50524F2D30311A18E4BC81E4B89AE7BAA7E58D83E58586E4BAA4E68DA2E69CBA20904E283230DC0B3A0857482D53482D3031408C06",
         "raw_base64": "+wEBMgEAAAAAAAAAAAAD6gAAAD2NgQaVCAESClNLVS1QUk8tMDEaGOS8geS4mue6p+WNg+WFhuS6pOaNouacuiCQTigyMNwLOghXSC1TSC0wMUCMBg==",
-        "latency_ms": 0.383
+        "latency_ms": 0.499
       },
       "raw_req_hex": "fb0101310100000000000000000003ea000000224293dc4d0a0a534b552d50524f2d3031120b5553522d5649502d3030311a07434e2d45415354",
       "raw_resp_hex": "fb0101320100000000000000000003ea0000003d8d8106950801120a534b552d50524f2d30311a18e4bc81e4b89ae7baa7e58d83e58586e4baa4e68da2e69cba20904e283230dc0b3a0857482d53482d3031408c06",
@@ -968,8 +968,8 @@
       "semantic_key": "op=0x31|pb=0a10534b552d4f55542d4f462d53544f434b120b5553522d5649502d3030311a07434e2d45415354",
       "op_name": "OpBackendOrderQueryReq(0x31) -\u003e OpBackendOrderQueryResp(0x32)",
       "original_req": {
-        "seq_id": 230,
-        "timestamp": "09:26:53.721",
+        "seq_id": 10,
+        "timestamp": "10:57:53.761",
         "direction": "EGRESS_REQ",
         "mode": "RECORD",
         "header": {
@@ -1027,8 +1027,8 @@
         "latency_ms": 0
       },
       "original_resp": {
-        "seq_id": 231,
-        "timestamp": "09:26:53.722",
+        "seq_id": 11,
+        "timestamp": "10:57:53.762",
         "direction": "EGRESS_RESP",
         "mode": "RECORD",
         "header": {
@@ -1089,7 +1089,7 @@
         },
         "raw_wire_hex": "FB0101320100000000000000000003EC0000003C50A186C608011210534B552D4F55542D4F462D53544F434B1A12E7B4A7E7BCBAE7AE97E58A9BE6A8A1E7BB8420D0860330D00F3A0857482D535A2D3031408C06",
         "raw_base64": "+wEBMgEAAAAAAAAAAAAD7AAAADxQoYbGCAESEFNLVS1PVVQtT0YtU1RPQ0saEue0p+e8uueul+WKm+aooee7hCDQhgMw0A86CFdILVNaLTAxQIwG",
-        "latency_ms": 0.561
+        "latency_ms": 0.25
       },
       "raw_req_hex": "fb0101310100000000000000000003ec00000028b23e0e3d0a10534b552d4f55542d4f462d53544f434b120b5553522d5649502d3030311a07434e2d45415354",
       "raw_resp_hex": "fb0101320100000000000000000003ec0000003c50a186c608011210534b552d4f55542d4f462d53544f434b1a12e7b4a7e7bcbae7ae97e58a9be6a8a1e7bb8420d0860330d00f3a0857482d535a2d3031408c06",
@@ -1100,8 +1100,8 @@
       "semantic_key": "op=0x31|pb=0a0b534b552d454447452d3032120b5553522d4c4f572d3030331a0755532d57455354",
       "op_name": "OpBackendOrderQueryReq(0x31) -\u003e OpBackendOrderQueryResp(0x32)",
       "original_req": {
-        "seq_id": 234,
-        "timestamp": "09:26:53.724",
+        "seq_id": 14,
+        "timestamp": "10:57:53.763",
         "direction": "EGRESS_REQ",
         "mode": "RECORD",
         "header": {
@@ -1159,8 +1159,8 @@
         "latency_ms": 0
       },
       "original_resp": {
-        "seq_id": 235,
-        "timestamp": "09:26:53.724",
+        "seq_id": 15,
+        "timestamp": "10:57:53.764",
         "direction": "EGRESS_RESP",
         "mode": "RECORD",
         "header": {
@@ -1221,7 +1221,7 @@
         },
         "raw_wire_hex": "FB0101320100000000000000000003ED0000003FEE8791780801120B534B552D454447452D30321A18E8BEB9E7BC98E8AEA1E7AE97E7BD91E585B3E88A82E782B92080F104280A30A0063A0857482D424A2D303240FE03",
         "raw_base64": "+wEBMgEAAAAAAAAAAAAD7QAAAD/uh5F4CAESC1NLVS1FREdFLTAyGhjovrnnvJjorqHnrpfnvZHlhbPoioLngrkggPEEKAowoAY6CFdILUJKLTAyQP4D",
-        "latency_ms": 0.298
+        "latency_ms": 0.65
       },
       "raw_req_hex": "fb0101310100000000000000000003ed00000023616e820c0a0b534b552d454447452d3032120b5553522d4c4f572d3030331a0755532d57455354",
       "raw_resp_hex": "fb0101320100000000000000000003ed0000003fee8791780801120b534b552d454447452d30321a18e8beb9e7bc98e8aea1e7ae97e7bd91e585b3e88a82e782b92080f104280a30a0063a0857482d424a2d303240fe03",
@@ -1232,8 +1232,8 @@
       "semantic_key": "op=0x41|pb=0a0b5553522d5649502d303031",
       "op_name": "OpBackendCreditQueryReq(0x41) -\u003e OpBackendCreditQueryResp(0x42)",
       "original_req": {
-        "seq_id": 238,
-        "timestamp": "09:26:53.726",
+        "seq_id": 18,
+        "timestamp": "10:57:53.765",
         "direction": "EGRESS_REQ",
         "mode": "RECORD",
         "header": {
@@ -1289,8 +1289,8 @@
         "latency_ms": 0
       },
       "original_resp": {
-        "seq_id": 239,
-        "timestamp": "09:26:53.728",
+        "seq_id": 19,
+        "timestamp": "10:57:53.765",
         "direction": "EGRESS_RESP",
         "mode": "RECORD",
         "header": {
@@ -1348,7 +1348,7 @@
         },
         "raw_wire_hex": "FB0101420100000000000000000003EE00000014006FAB700801120B5553522D5649502D303031188C062824",
         "raw_base64": "+wEBQgEAAAAAAAAAAAAD7gAAABQAb6twCAESC1VTUi1WSVAtMDAxGIwGKCQ=",
-        "latency_ms": 1.922
+        "latency_ms": 0.242
       },
       "raw_req_hex": "fb0101410100000000000000000003ee0000000d894e3aa80a0b5553522d5649502d303031",
       "raw_resp_hex": "fb0101420100000000000000000003ee00000014006fab700801120b5553522d5649502d303031188c062824",

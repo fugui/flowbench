@@ -888,3 +888,384 @@ body {
   cursor: pointer;
   color: var(--accent-red);
 }
+
+/* ==========================================================================
+   Milestone 10: 业务开发视角单组件工作台与经典 UML 时序图样式
+   ========================================================================== */
+
+.workbench-master-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #1e293b;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  border-left: 4px solid #38bdf8;
+}
+
+.wmh-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wmh-tag {
+  font-weight: 700;
+  font-size: 13px;
+  color: #f8fafc;
+}
+
+.wmh-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.btn-replay-action {
+  background: linear-gradient(135deg, #0284c7, #2563eb);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+}
+
+.btn-replay-action:hover {
+  background: linear-gradient(135deg, #0369a1, #1d4ed8);
+}
+
+/* 区域 1: 经典 UML 交互式时序图 */
+.uml-sequence-card {
+  background: #0f172a;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.uml-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #1e293b;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.uch-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 12px;
+  color: #f1f5f9;
+}
+
+.uch-legend {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.leg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.leg-sym {
+  display: inline-block;
+  width: 16px;
+  height: 2px;
+}
+
+.leg-sym.line-solid { background: #38bdf8; }
+.leg-sym.line-dashed { background: repeating-linear-gradient(90deg, #10b981 0, #10b981 4px, transparent 4px, transparent 8px); }
+
+.leg-hint {
+  color: #94a3b8;
+  font-style: italic;
+  margin-left: 6px;
+}
+
+.uml-canvas-wrapper {
+  overflow-x: auto;
+  padding: 4px 0;
+}
+
+.uml-participants-header {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.uml-participant-box {
+  background: #1e293b;
+  border: 2px solid #334155;
+  border-radius: 6px;
+  padding: 6px 10px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uml-participant-box.role-sut {
+  border-color: #38bdf8;
+  background: #0c4a6e;
+  color: #e0f2fe;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+}
+
+.uml-participant-box.role-caller {
+  border-color: #a855f7;
+  background: #3b0764;
+  color: #f3e8ff;
+}
+
+.uml-participant-box.role-backend {
+  border-color: #10b981;
+  background: #064e3b;
+  color: #d1fae5;
+}
+
+.uml-steps-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.uml-step-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid #1e293b;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  position: relative;
+}
+
+.uml-step-row:hover {
+  background: rgba(30, 41, 59, 0.9);
+  border-color: #475569;
+}
+
+.uml-step-row.active-step {
+  background: rgba(14, 116, 144, 0.25);
+  border-color: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+}
+
+.uml-step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #334155;
+  color: #f8fafc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.active-step .uml-step-num {
+  background: #38bdf8;
+  color: #0f172a;
+}
+
+.uml-step-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.uml-step-endpoints {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.uml-step-from, .uml-step-to {
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.uml-arrow-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+.uml-arrow-indicator.is-return {
+  color: #10b981;
+}
+
+.uml-step-op {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: #f1f5f9;
+  background: #0f172a;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid #334155;
+  white-space: nowrap;
+}
+
+.uml-step-meta {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  margin-left: auto;
+}
+
+.mock-badge-tag {
+  background: #78350f;
+  color: #fef08a;
+  border: 1px solid #b45309;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* 区域 2: 纯业务 Protobuf 载荷与原地改参/Mock 工作台 */
+.business-payload-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.bpc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.bpc-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bpc-step-badge {
+  background: #0284c7;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.bpc-step-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: #f1f5f9;
+}
+
+.bpc-hint-bar {
+  background: #1e293b;
+  border-left: 3px solid #0284c7;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: #cbd5e1;
+  margin-bottom: 8px;
+  border-radius: 0 4px 4px 0;
+}
+
+.payload-editor {
+  min-height: 140px;
+  font-size: 12px;
+  line-height: 1.4;
+  border-color: #334155;
+}
+
+.payload-editor:focus {
+  border-color: #38bdf8;
+  outline: none;
+}
+
+/* 区域 3: 底层协议帧头排障抽屉 */
+.protocol-drawer-section {
+  margin-top: 10px;
+}
+
+.protocol-drawer-toggle {
+  background: #1e293b;
+  border: 1px dashed #334155;
+  border-radius: 6px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px;
+  transition: all 0.2s;
+}
+
+.protocol-drawer-toggle:hover {
+  background: #334155;
+  color: #f1f5f9;
+}
+
+.protocol-drawer-toggle.has-error {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+}
+
+.protocol-drawer-content {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  padding: 10px;
+}
+
+.empty-workbench-hint {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* 拓扑模式药丸徽章 */
+.mode-pill {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.mode-record {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid #10b981;
+}
+.mode-mock {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid #f59e0b;
+}

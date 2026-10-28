@@ -62,6 +62,7 @@ type TransactionTrace struct {
 	SubCalls    []SubCallDetail     `json:"sub_calls"`
 	HasDiff     bool                `json:"has_diff"`
 	LastReplay  *SingleReplayResult `json:"last_replay,omitempty"`
+	UMLDiagram  *UMLDiagramData     `json:"uml_diagram,omitempty"`
 }
 
 // RecordingSession 描述一个完整录制会话
