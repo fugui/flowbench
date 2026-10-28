@@ -12,19 +12,29 @@ import (
 	"github.com/fugui/flowbench/internal/protocol/schema"
 )
 
-// AttachedTargetState 描述当前动态挂载监听的用户业务进程与网络拦截目标
-type AttachedTargetState struct {
-	Attached        bool   `json:"attached"`
-	TargetPID       int    `json:"target_pid"`
-	ProcessName     string `json:"process_name"`
-	IngressOrigPort uint16 `json:"ingress_orig_port"`
-	EgressOrigIP    string `json:"egress_orig_ip"`
-	EgressOrigPort  uint16 `json:"egress_orig_port"`
-	AttachedAt      string `json:"attached_at,omitempty"`
+// BackendEndpoint 描述一个注册的下游 Backend 服务依赖
+type BackendEndpoint struct {
+	Name      string `json:"name"`
+	Host      string `json:"host"`
+	Port      uint16 `json:"port"`
+	ProxyPort uint16 `json:"proxy_port,omitempty"`
+	Active    bool   `json:"active"`
 }
 
-// AttachProcess 动态选定并挂载目标业务进程 (TargetPID) 与入站/出站依赖端口
-func (e *Engine) AttachProcess(targetPID int, procName string, ingressPort uint16, egressIP string, egressPort uint16) (AttachedTargetState, error) {
+// AttachedTargetState 描述当前动态挂载监听的用户业务进程与网络拦截目标
+type AttachedTargetState struct {
+	Attached        bool              `json:"attached"`
+	TargetPID       int               `json:"target_pid"`
+	ProcessName     string            `json:"process_name"`
+	IngressOrigPort uint16            `json:"ingress_orig_port"`
+	EgressOrigIP    string            `json:"egress_orig_ip"`
+	EgressOrigPort  uint16            `json:"egress_orig_port"`
+	Backends        []BackendEndpoint `json:"backends,omitempty"`
+	AttachedAt      string            `json:"attached_at,omitempty"`
+}
+
+// AttachProcess 动态选定并挂载目标业务进程 (TargetPID) 与入站/出站依赖端口 (支持多 Backend)
+func (e *Engine) AttachProcess(targetPID int, procName string, ingressPort uint16, egressIP string, egressPort uint16, backends ...BackendEndpoint) (AttachedTargetState, error) {
 	if targetPID < 0 {
 		return AttachedTargetState{}, errors.New("invalid target_pid")
 	}
@@ -42,6 +52,34 @@ func (e *Engine) AttachProcess(targetPID int, procName string, ingressPort uint1
 		egressPort = e.virtualBackPort
 	}
 
+	finalBackends := make([]BackendEndpoint, 0)
+	if len(backends) > 0 {
+		for _, b := range backends {
+			h := strings.TrimSpace(b.Host)
+			if h == "" {
+				h = "127.0.0.1"
+			}
+			name := strings.TrimSpace(b.Name)
+			if name == "" {
+				name = fmt.Sprintf("backend-%s-%d", h, b.Port)
+			}
+			finalBackends = append(finalBackends, BackendEndpoint{
+				Name:      name,
+				Host:      h,
+				Port:      b.Port,
+				ProxyPort: b.ProxyPort,
+				Active:    true,
+			})
+		}
+	} else {
+		finalBackends = append(finalBackends, BackendEndpoint{
+			Name:   "default-backend",
+			Host:   cleanedIP,
+			Port:   egressPort,
+			Active: true,
+		})
+	}
+
 	state := AttachedTargetState{
 		Attached:        true,
 		TargetPID:       targetPID,
@@ -49,6 +87,7 @@ func (e *Engine) AttachProcess(targetPID int, procName string, ingressPort uint1
 		IngressOrigPort: ingressPort,
 		EgressOrigIP:    cleanedIP,
 		EgressOrigPort:  egressPort,
+		Backends:        finalBackends,
 		AttachedAt:      time.Now().Format("15:04:05"),
 	}
 
@@ -67,8 +106,82 @@ func (e *Engine) AttachProcess(targetPID int, procName string, ingressPort uint1
 			ingressPort,
 			egressPort,
 		)
+		for _, b := range finalBackends {
+			if b.ProxyPort > 0 {
+				_ = e.interceptor.AddEgressTarget(b.Host, b.Port, b.ProxyPort)
+			}
+		}
 	}
 	return state, nil
+}
+
+// AddBackendEndpoint 动态向当前附加目标追加一个下游 Backend
+func (e *Engine) AddBackendEndpoint(ep BackendEndpoint) (BackendEndpoint, error) {
+	if ep.Port == 0 {
+		return BackendEndpoint{}, errors.New("invalid backend port: 0")
+	}
+	h := strings.TrimSpace(ep.Host)
+	if h == "" {
+		h = "127.0.0.1"
+	}
+	ep.Host = h
+	if strings.TrimSpace(ep.Name) == "" {
+		ep.Name = fmt.Sprintf("backend-%s-%d", h, ep.Port)
+	}
+	ep.Active = true
+
+	e.mu.Lock()
+	// 去重检查
+	found := false
+	for i, b := range e.attachedTarget.Backends {
+		if b.Host == ep.Host && b.Port == ep.Port {
+			e.attachedTarget.Backends[i] = ep
+			found = true
+			break
+		}
+	}
+	if !found {
+		e.attachedTarget.Backends = append(e.attachedTarget.Backends, ep)
+	}
+	e.mu.Unlock()
+
+	if e.interceptor != nil && ep.ProxyPort > 0 {
+		_ = e.interceptor.AddEgressTarget(ep.Host, ep.Port, ep.ProxyPort)
+	}
+	return ep, nil
+}
+
+// RemoveBackendEndpoint 动态注销指定下游 Backend
+func (e *Engine) RemoveBackendEndpoint(host string, port uint16) error {
+	h := strings.TrimSpace(host)
+	if h == "" {
+		h = "127.0.0.1"
+	}
+
+	e.mu.Lock()
+	filtered := make([]BackendEndpoint, 0, len(e.attachedTarget.Backends))
+	for _, b := range e.attachedTarget.Backends {
+		if b.Host == h && b.Port == port {
+			continue
+		}
+		filtered = append(filtered, b)
+	}
+	e.attachedTarget.Backends = filtered
+	e.mu.Unlock()
+
+	if e.interceptor != nil {
+		_ = e.interceptor.RemoveEgressTarget(h, port)
+	}
+	return nil
+}
+
+// ListBackendEndpoints 返回当前注册的所有下游依赖
+func (e *Engine) ListBackendEndpoints() []BackendEndpoint {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	res := make([]BackendEndpoint, len(e.attachedTarget.Backends))
+	copy(res, e.attachedTarget.Backends)
+	return res
 }
 
 // DetachProcess 卸载针对特定用户进程的探针过滤规则，恢复默认沙箱就绪状态
@@ -80,13 +193,25 @@ func (e *Engine) DetachProcess() AttachedTargetState {
 		IngressOrigPort: e.virtualSrvPort,
 		EgressOrigIP:    "127.0.0.1",
 		EgressOrigPort:  e.virtualBackPort,
+		Backends: []BackendEndpoint{
+			{
+				Name:   "sandbox-backend",
+				Host:   "127.0.0.1",
+				Port:   e.virtualBackPort,
+				Active: true,
+			},
+		},
 	}
 
 	e.mu.Lock()
+	oldBackends := e.attachedTarget.Backends
 	e.attachedTarget = state
 	e.mu.Unlock()
 
 	if e.interceptor != nil {
+		for _, b := range oldBackends {
+			_ = e.interceptor.RemoveEgressTarget(b.Host, b.Port)
+		}
 		_ = e.interceptor.UpdateTargetProcess(
 			0,
 			e.virtualSrvPort,
@@ -117,6 +242,25 @@ func (e *Engine) SetFramingSpec(spec codec.FramingSpec) (codec.FramingSpec, erro
 	e.framingSpec = spec
 	e.mu.Unlock()
 	return spec, nil
+}
+
+// InjectCustomMock 向引擎注入或覆盖一条指定语义签名的 Mock 资产（支持多后端隔离签名）。
+func (e *Engine) InjectCustomMock(semKey, rawReqHex, rawRespHex string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	mockID := fmt.Sprintf("injected-mock-%d", len(e.egressMocks)+1)
+	asset := &RecordedMockAsset{
+		MockID:      mockID,
+		SemanticKey: semKey,
+		RawReqHex:   rawReqHex,
+		RawRespHex:  rawRespHex,
+		HitCount:    0,
+	}
+	if _, exists := e.egressMocks[semKey]; !exists {
+		e.egressMockOrder = append(e.egressMockOrder, semKey)
+	}
+	e.egressMocks[semKey] = asset
 }
 
 // SelectPresetFramingSpec 根据预置模板 ID 切换二进制帧头 DSL 规范

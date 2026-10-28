@@ -57,9 +57,19 @@
         <div class="attach-form-row">
           <input type="number" id="input-target-pid" class="input-ctrl input-xs" placeholder="TargetPID" value="0">
           <input type="number" id="input-ingress-port" class="input-ctrl input-xs" placeholder="入站端口" value="9100">
-          <input type="text" id="input-egress-ip" class="input-ctrl input-xs" placeholder="下游 IP" value="127.0.0.1">
-          <input type="number" id="input-egress-port" class="input-ctrl input-xs" placeholder="下游端口" value="9200">
+          <input type="text" id="input-egress-ip" class="input-ctrl input-xs" placeholder="主下游 IP" value="127.0.0.1">
+          <input type="number" id="input-egress-port" class="input-ctrl input-xs" placeholder="主下游端口" value="9200">
           <button type="button" class="btn btn-sm btn-primary" id="btn-attach-custom">🎯 挂载进程规则</button>
+        </div>
+        <div class="multi-backend-box">
+          <div class="sub-header-title">🔀 多下游 Backend 规则表 (支持同一主机多个不同端口 + 少量跨机远端 IP)：</div>
+          <div id="backend-chips-container" class="backend-chips-bar"></div>
+          <div class="add-backend-row">
+            <input type="text" id="input-new-backend-name" class="input-ctrl input-xs" placeholder="名称 (如 order-stock)">
+            <input type="text" id="input-new-backend-host" class="input-ctrl input-xs" placeholder="主机/IP" value="127.0.0.1">
+            <input type="number" id="input-new-backend-port" class="input-ctrl input-xs" placeholder="下游端口">
+            <button type="button" class="btn btn-sm btn-primary" id="btn-add-backend">+ 添加下游 Backend</button>
+          </div>
         </div>
         <div class="table-scroll proc-table-wrap">
           <table class="data-table">

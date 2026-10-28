@@ -83,6 +83,7 @@
         "topo-egress-arrow",
         "connect4(" + attachedTarget.egress_orig_ip + ":" + attachedTarget.egress_orig_port + ")"
       );
+      renderBackendChips(attachedTarget.backends || []);
     }
     if (framingSpec) {
       activeFramingSpec = framingSpec;
@@ -265,6 +266,78 @@
       .catch(function () {});
   }
 
+  function renderBackendChips(backends) {
+    var container = document.getElementById("backend-chips-container");
+    if (!container) return;
+    container.replaceChildren();
+    if (!backends || backends.length === 0) {
+      container.appendChild(el("span", "sub-hint", "未注册多后端（默认使用主下游配置）"));
+      return;
+    }
+    for (var i = 0; i < backends.length; i++) {
+      (function (b) {
+        var chip = el("span", "backend-chip");
+        chip.appendChild(el("span", "chip-name", b.name + ": " + b.host + ":" + b.port));
+        var delBtn = el("span", "chip-del", "×");
+        delBtn.title = "注销此 Backend";
+        delBtn.addEventListener("click", function () {
+          removeBackend(b.host, b.port);
+        });
+        chip.appendChild(delBtn);
+        container.appendChild(chip);
+      })(backends[i]);
+    }
+  }
+
+  function addBackend() {
+    var nameInput = document.getElementById("input-new-backend-name");
+    var hostInput = document.getElementById("input-new-backend-host");
+    var portInput = document.getElementById("input-new-backend-port");
+    if (!portInput || !portInput.value) return;
+
+    var nameVal = nameInput ? nameInput.value.trim() : "";
+    var hostVal = hostInput ? hostInput.value.trim() || "127.0.0.1" : "127.0.0.1";
+    var portVal = parseInt(portInput.value, 10);
+    if (!portVal) return;
+
+    fetch("/api/backends/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: nameVal || "backend-" + hostVal + "-" + portVal,
+        host: hostVal,
+        port: portVal,
+        active: true
+      })
+    })
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function () {
+        if (portInput) portInput.value = "";
+        loadInitialState();
+      })
+      .catch(function () {});
+  }
+
+  function removeBackend(host, port) {
+    fetch("/api/backends/remove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        host: host,
+        port: port
+      })
+    })
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function () {
+        loadInitialState();
+      })
+      .catch(function () {});
+  }
+
   function applyFramingPreset() {
     var sel = document.getElementById("select-framing-preset");
     if (!sel) return;
@@ -416,6 +489,9 @@
         ["Checksum", frame.header.crc32_hex + (frame.crc32_valid ? " [VALID]" : " [INVALID]")],
         ["Schema 反射状态", frame.header.schema_decoded ? "dynamicpb 明文" : "Wire Tag 降级树"]
       ];
+      if (frame.target_backend) {
+        items.push(["Target Backend", frame.target_backend + (frame.backend_name ? " (" + frame.backend_name + ")" : "")]);
+      }
       for (var j = 0; j < items.length; j++) {
         var box = el("div", "kv-box");
         box.appendChild(el("div", "k", items[j][0]));
@@ -647,6 +723,10 @@
       attachSelectedProcess();
     });
     document.getElementById("btn-detach-proc").addEventListener("click", detachProcess);
+    var addBackendBtn = document.getElementById("btn-add-backend");
+    if (addBackendBtn) {
+      addBackendBtn.addEventListener("click", addBackend);
+    }
     document.getElementById("btn-apply-preset").addEventListener("click", applyFramingPreset);
     document.getElementById("btn-import-proto").addEventListener("click", function () {
       updateProtoSchema("import");

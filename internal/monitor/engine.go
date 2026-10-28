@@ -45,14 +45,16 @@ type RecordedCaseAsset struct {
 
 // RecordedMockAsset 表示一条结构化可读的出站二进制 Mock 资产。
 type RecordedMockAsset struct {
-	MockID       string             `json:"mock_id"`
-	SemanticKey  string             `json:"semantic_key"`
-	OpName       string             `json:"op_name"`
-	OriginalReq  CapturedFrameEvent `json:"original_req"`
-	OriginalResp CapturedFrameEvent `json:"original_resp"`
-	RawReqHex    string             `json:"raw_req_hex"`
-	RawRespHex   string             `json:"raw_resp_hex"`
-	HitCount     uint64             `json:"hit_count"`
+	MockID        string             `json:"mock_id"`
+	SemanticKey   string             `json:"semantic_key"`
+	OpName        string             `json:"op_name"`
+	TargetBackend string             `json:"target_backend,omitempty"`
+	BackendName   string             `json:"backend_name,omitempty"`
+	OriginalReq   CapturedFrameEvent `json:"original_req"`
+	OriginalResp  CapturedFrameEvent `json:"original_resp"`
+	RawReqHex     string             `json:"raw_req_hex"`
+	RawRespHex    string             `json:"raw_resp_hex"`
+	HitCount      uint64             `json:"hit_count"`
 }
 
 // ScenarioAssertionResult 表示单个业务场景在录制或回放实验中的验证结果及字段级 Diff。
@@ -194,9 +196,11 @@ func (e *Engine) Unsubscribe(ch chan CapturedFrameEvent) {
 	e.subMu.Unlock()
 }
 
-func (e *Engine) publishFrame(f *codec.Frame, direction, mode string, latencyMs float64) CapturedFrameEvent {
+func (e *Engine) publishFrameWithBackend(f *codec.Frame, direction, mode, targetBackend, backendName string, latencyMs float64) CapturedFrameEvent {
 	seq := e.seqCounter.Add(1)
 	ev := InspectFrameWithRegistry(f, e.schemaReg, direction, mode, seq, latencyMs)
+	ev.TargetBackend = targetBackend
+	ev.BackendName = backendName
 
 	e.mu.Lock()
 	e.recentFrames = append(e.recentFrames, ev)
@@ -215,6 +219,10 @@ func (e *Engine) publishFrame(f *codec.Frame, direction, mode string, latencyMs 
 	e.subMu.Unlock()
 
 	return ev
+}
+
+func (e *Engine) publishFrame(f *codec.Frame, direction, mode string, latencyMs float64) CapturedFrameEvent {
+	return e.publishFrameWithBackend(f, direction, mode, "", "", latencyMs)
 }
 
 // Close 卸载内核 cilium/ebpf 探针并释放资源。
@@ -805,17 +813,26 @@ func (e *Engine) runReplaySuite(ctx context.Context, deterministic bool, faultMu
 // MatchAndHealMockResponse 根据请求的业务语义签名匹配录制的二进制 Mock，
 // 并动态将响应帧头的 RequestID 改写为当前请求的 RequestID，同时自动重算 CRC32 校验和。
 func (e *Engine) MatchAndHealMockResponse(reqFrame *codec.Frame) (*codec.Frame, error) {
-	semKey := SemanticSignature(reqFrame)
+	return e.MatchAndHealMockResponseWithBackend("", reqFrame)
+}
+
+// MatchAndHealMockResponseWithBackend 支持传入指定下游 Backend 地址进行多后端隔离匹配与自愈。
+func (e *Engine) MatchAndHealMockResponseWithBackend(targetBackend string, reqFrame *codec.Frame) (*codec.Frame, error) {
+	semKey := SemanticSignatureWithBackend(targetBackend, reqFrame)
+	fallbackKey := SemanticSignature(reqFrame)
 
 	e.mu.Lock()
 	mockAsset, ok := e.egressMocks[semKey]
+	if !ok {
+		mockAsset, ok = e.egressMocks[fallbackKey]
+	}
 	if ok {
 		mockAsset.HitCount++
 	}
 	e.mu.Unlock()
 
 	if !ok {
-		return nil, fmt.Errorf("ebpf mock miss for semantic key %s (reqID=%d)", semKey, reqFrame.Header.RequestID)
+		return nil, fmt.Errorf("ebpf mock miss for semantic key %s (target=%s, reqID=%d)", semKey, targetBackend, reqFrame.Header.RequestID)
 	}
 
 	rawRespBytes, err := hex.DecodeString(mockAsset.RawRespHex)

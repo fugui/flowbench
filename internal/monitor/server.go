@@ -73,6 +73,9 @@ func (ws *WebServer) Start() (string, error) {
 	mux.HandleFunc("/api/processes", ws.handleProcesses)
 	mux.HandleFunc("/api/attach", ws.handleAttachProcess)
 	mux.HandleFunc("/api/detach", ws.handleDetachProcess)
+	mux.HandleFunc("/api/backends", ws.handleBackends)
+	mux.HandleFunc("/api/backends/add", ws.handleAddBackend)
+	mux.HandleFunc("/api/backends/remove", ws.handleRemoveBackend)
 	mux.HandleFunc("/api/protocol/spec", ws.handleProtocolSpec)
 	mux.HandleFunc("/api/protocol/schema", ws.handleProtocolSchema)
 	mux.HandleFunc("/api/mocks/update", ws.handleUpdateMock)
@@ -181,25 +184,30 @@ func (ws *WebServer) handleAttachProcess(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req struct {
-		TargetPID   int    `json:"target_pid"`
-		ProcessName string `json:"process_name"`
-		IngressPort uint16 `json:"ingress_port"`
-		EgressIP    string `json:"egress_ip"`
-		EgressPort  uint16 `json:"egress_port"`
+		TargetPID   int               `json:"target_pid"`
+		ProcessName string            `json:"process_name"`
+		IngressPort uint16            `json:"ingress_port"`
+		EgressIP    string            `json:"egress_ip"`
+		EgressPort  uint16            `json:"egress_port"`
+		Backends    []BackendEndpoint `json:"backends"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	st, err := ws.engine.AttachProcess(req.TargetPID, req.ProcessName, req.IngressPort, req.EgressIP, req.EgressPort)
+	st, err := ws.engine.AttachProcess(req.TargetPID, req.ProcessName, req.IngressPort, req.EgressIP, req.EgressPort, req.Backends...)
 	if err != nil {
 		http.Error(w, "attach process failed", http.StatusBadRequest)
 		return
 	}
+	var ebpfSt any
+	if ws.engine.interceptor != nil {
+		ebpfSt = ws.engine.interceptor.Status()
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"attached_target": st,
-		"ebpf_status":     ws.engine.interceptor.Status(),
+		"ebpf_status":     ebpfSt,
 	})
 }
 
@@ -210,10 +218,73 @@ func (ws *WebServer) handleDetachProcess(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	st := ws.engine.DetachProcess()
+	var ebpfSt any
+	if ws.engine.interceptor != nil {
+		ebpfSt = ws.engine.interceptor.Status()
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"attached_target": st,
-		"ebpf_status":     ws.engine.interceptor.Status(),
+		"ebpf_status":     ebpfSt,
+	})
+}
+
+func (ws *WebServer) handleBackends(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	backends := ws.engine.ListBackendEndpoints()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"backends": backends,
+	})
+}
+
+func (ws *WebServer) handleAddBackend(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req BackendEndpoint
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	added, err := ws.engine.AddBackendEndpoint(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"backend": added,
+	})
+}
+
+func (ws *WebServer) handleRemoveBackend(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Host string `json:"host"`
+		Port uint16 `json:"port"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := ws.engine.RemoveBackendEndpoint(req.Host, req.Port); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok": true,
 	})
 }
 

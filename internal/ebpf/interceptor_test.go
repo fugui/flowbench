@@ -110,3 +110,33 @@ func TestKernelCgroupConnect4RedirectionAndSelfBypass(t *testing.T) {
 	t.Logf("cilium/ebpf kernel status after interception: progID=%d, targetPID=%d, egressRedirected=%d",
 		st.ProgramID, st.TargetPID, st.StatEgressRedirected)
 }
+
+func TestMultiEgressTargetsAPI(t *testing.T) {
+	ic := &Interceptor{
+		targets: make(map[string]EgressTargetInfo),
+	}
+
+	if err := ic.AddEgressTarget("127.0.0.1", 19201, 29201); err != nil {
+		t.Fatalf("add target: %v", err)
+	}
+	if err := ic.AddEgressTarget("10.0.1.50", 19202, 29202); err != nil {
+		t.Fatalf("add target 2: %v", err)
+	}
+
+	targets := ic.ListEgressTargets()
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 targets, got %d", len(targets))
+	}
+
+	st := ic.Status()
+	if len(st.Targets) != 2 {
+		t.Fatalf("expected 2 targets in status, got %d", len(st.Targets))
+	}
+
+	if err := ic.RemoveEgressTarget("127.0.0.1", 19201); err != nil {
+		t.Fatalf("remove target: %v", err)
+	}
+	if len(ic.ListEgressTargets()) != 1 {
+		t.Fatalf("expected 1 target left, got %d", len(ic.ListEgressTargets()))
+	}
+}

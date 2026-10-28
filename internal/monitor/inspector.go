@@ -43,14 +43,16 @@ type DecodedHeaderInfo struct {
 type CapturedFrameEvent struct {
 	SeqID          uint64            `json:"seq_id"`
 	Timestamp      string            `json:"timestamp"`
-	Direction      string            `json:"direction"`        // INGRESS_REQ, INGRESS_RESP, EGRESS_REQ, EGRESS_RESP, EGRESS_MOCK_RESP
-	Mode           string            `json:"mode"`             // RECORD, REPLAY
-	Header         DecodedHeaderInfo `json:"header"`           // 帧头字段字典
-	HeaderBytesHex []string          `json:"header_bytes_hex"` // 帧头独立字节十六进制切片
-	CRC32Valid     bool              `json:"crc32_valid"`      // 校验和是否通过
-	ProtobufJSON   map[string]any    `json:"protobuf_json"`    // 反序列化后的 Protobuf 业务字段明文或无 Schema Tag 树
-	RawWireHex     string            `json:"raw_wire_hex"`     // Header+Payload 完整十六进制字节流
-	RawBase64      string            `json:"raw_base64"`       // 完整帧 Base64 编码字符串
+	Direction      string            `json:"direction"`                // INGRESS_REQ, INGRESS_RESP, EGRESS_REQ, EGRESS_RESP, EGRESS_MOCK_RESP
+	Mode           string            `json:"mode"`                     // RECORD, REPLAY
+	TargetBackend  string            `json:"target_backend,omitempty"` // 下游依赖真实地址 (如 "127.0.0.1:19201" 或 "192.168.1.50:19204")
+	BackendName    string            `json:"backend_name,omitempty"`   // 下游依赖微服务名称 (如 "商品中心")
+	Header         DecodedHeaderInfo `json:"header"`                   // 帧头字段字典
+	HeaderBytesHex []string          `json:"header_bytes_hex"`         // 帧头独立字节十六进制切片
+	CRC32Valid     bool              `json:"crc32_valid"`              // 校验和是否通过
+	ProtobufJSON   map[string]any    `json:"protobuf_json"`            // 反序列化后的 Protobuf 业务字段明文或无 Schema Tag 树
+	RawWireHex     string            `json:"raw_wire_hex"`             // Header+Payload 完整十六进制字节流
+	RawBase64      string            `json:"raw_base64"`               // 完整帧 Base64 编码字符串
 	LatencyMs      float64           `json:"latency_ms"`
 }
 
@@ -219,6 +221,16 @@ func SemanticSignature(f *codec.Frame) string {
 		}
 	}
 	return fmt.Sprintf("op=0x%02X|raw=%x", f.Header.OpCode, f.Payload)
+}
+
+// SemanticSignatureWithBackend 生成包含下游目标标识的确定性业务请求签名，用于多后端隔离的 Mock 匹配。
+func SemanticSignatureWithBackend(backend string, f *codec.Frame) string {
+	baseSig := SemanticSignature(f)
+	trimmed := strings.TrimSpace(backend)
+	if trimmed == "" {
+		return baseSig
+	}
+	return fmt.Sprintf("%s#%s", trimmed, baseSig)
 }
 
 // ComputeFieldDiffs 计算录制基线响应帧与实际回放响应帧之间的帧头与 Protobuf 字段级差异。

@@ -24,6 +24,8 @@ import (
 const (
 	// StateMapName 为内核态与用户态共享的配置及统计 BPF Map 名称。
 	StateMapName = "flowbench_state_map"
+	// TargetsMapName 为多下游 Egress 目标哈希表 (DestIP, DestPort -> ProxyPort) 名称。
+	TargetsMapName = "flowbench_targets_map"
 	// ProgramName 为挂载至 cgroup/connect4 的 eBPF 程序名称。
 	ProgramName = "flowbench_connect4"
 
@@ -56,6 +58,24 @@ type BPFState struct {
 	EgressOrigIPNet       uint64 `json:"egress_orig_ip_net"` // 被劫持下游依赖 IPv4 网络字节序 uint32 (默认 127.0.0.1 = 0x0100007f)
 }
 
+// EgressTargetKey 对应 BPF Hash Map (KeySize=8) 中的查询键 (DestIP + DestPort 网络字节序)。
+type EgressTargetKey struct {
+	DestIP   uint32 `json:"dest_ip"`
+	DestPort uint32 `json:"dest_port"` // 存储网络字节序 uint16 在低 16 位
+}
+
+// EgressTargetVal 对应 BPF Hash Map (ValueSize=4) 中的重定向值 (ProxyPort 网络字节序)。
+type EgressTargetVal struct {
+	ProxyPort uint32 `json:"proxy_port"` // 存储网络字节序 uint16 在低 16 位
+}
+
+// EgressTargetInfo 描述一个出站拦截目标的业务信息。
+type EgressTargetInfo struct {
+	DestIP    string `json:"dest_ip"`
+	DestPort  uint16 `json:"dest_port"`
+	ProxyPort uint16 `json:"proxy_port"`
+}
+
 // Config 定义 eBPF 连接劫持器的挂载、目标进程过滤与端口重映射参数。
 type Config struct {
 	CgroupPath       string // 默认为 /sys/fs/cgroup
@@ -72,24 +92,25 @@ type Config struct {
 
 // RuntimeStatus 描述 eBPF 探针的当前运行态与内核统计指标。
 type RuntimeStatus struct {
-	KernelActive          bool   `json:"kernel_active"`
-	Mode                  string `json:"mode"` // "KERNEL_EBPF_CGROUP_CONNECT4" 或 "USERSPACE_PROXY_FALLBACK"
-	CgroupPath            string `json:"cgroup_path"`
-	ProgramID             uint32 `json:"program_id"`
-	MonitorPID            uint64 `json:"monitor_pid"`
-	TargetPID             uint64 `json:"target_pid"`
-	IngressIntercepted    bool   `json:"ingress_intercepted"`
-	EgressIntercepted     bool   `json:"egress_intercepted"`
-	IngressOrigPort       uint16 `json:"ingress_orig_port"`
-	IngressProxyPort      uint16 `json:"ingress_proxy_port"`
-	EgressOrigIP          string `json:"egress_orig_ip"`
-	EgressOrigPort        uint16 `json:"egress_orig_port"`
-	EgressProxyPort       uint16 `json:"egress_proxy_port"`
-	StatTotalConnects     uint64 `json:"stat_total_connects"`
-	StatIngressRedirected uint64 `json:"stat_ingress_redirected"`
-	StatEgressRedirected  uint64 `json:"stat_egress_redirected"`
-	StatBypassedSelf      uint64 `json:"stat_bypassed_self"`
-	FallbackReason        string `json:"fallback_reason,omitempty"`
+	KernelActive          bool               `json:"kernel_active"`
+	Mode                  string             `json:"mode"` // "KERNEL_EBPF_CGROUP_CONNECT4" 或 "USERSPACE_PROXY_FALLBACK"
+	CgroupPath            string             `json:"cgroup_path"`
+	ProgramID             uint32             `json:"program_id"`
+	MonitorPID            uint64             `json:"monitor_pid"`
+	TargetPID             uint64             `json:"target_pid"`
+	IngressIntercepted    bool               `json:"ingress_intercepted"`
+	EgressIntercepted     bool               `json:"egress_intercepted"`
+	IngressOrigPort       uint16             `json:"ingress_orig_port"`
+	IngressProxyPort      uint16             `json:"ingress_proxy_port"`
+	EgressOrigIP          string             `json:"egress_orig_ip"`
+	EgressOrigPort        uint16             `json:"egress_orig_port"`
+	EgressProxyPort       uint16             `json:"egress_proxy_port"`
+	Targets               []EgressTargetInfo `json:"targets,omitempty"`
+	StatTotalConnects     uint64             `json:"stat_total_connects"`
+	StatIngressRedirected uint64             `json:"stat_ingress_redirected"`
+	StatEgressRedirected  uint64             `json:"stat_egress_redirected"`
+	StatBypassedSelf      uint64             `json:"stat_bypassed_self"`
+	FallbackReason        string             `json:"fallback_reason,omitempty"`
 }
 
 // Interceptor 管理 cilium/ebpf 内核程序、BPF Map 与 Cgroup Link 的生命周期。
@@ -97,6 +118,8 @@ type Interceptor struct {
 	mu             sync.RWMutex
 	cfg            Config
 	stateMap       *ebpf.Map
+	targetsMap     *ebpf.Map
+	targets        map[string]EgressTargetInfo
 	prog           *ebpf.Program
 	cgroupLink     link.Link
 	progID         uint32
@@ -155,7 +178,17 @@ func NewInterceptor(cfg Config) (*Interceptor, error) {
 	}
 
 	ic := &Interceptor{
-		cfg: cfg,
+		cfg:     cfg,
+		targets: make(map[string]EgressTargetInfo),
+	}
+
+	if cfg.EgressOrigPort > 0 {
+		trimmed := strings.TrimSpace(cfg.EgressOrigIP)
+		ic.targets[fmt.Sprintf("%s:%d", trimmed, cfg.EgressOrigPort)] = EgressTargetInfo{
+			DestIP:    trimmed,
+			DestPort:  cfg.EgressOrigPort,
+			ProxyPort: cfg.EgressProxyPort,
+		}
 	}
 
 	if err := rlimit.RemoveMemlock(); err != nil {
@@ -185,6 +218,33 @@ func NewInterceptor(cfg Config) (*Interceptor, error) {
 		return ic, err
 	}
 
+	targetsMapSpec := &ebpf.MapSpec{
+		Name:       TargetsMapName,
+		Type:       ebpf.Hash,
+		KeySize:    8, // uint32 DestIP + uint32 DestPort
+		ValueSize:  4, // uint32 ProxyPort
+		MaxEntries: 128,
+	}
+
+	targetsMap, err := ebpf.NewMap(targetsMapSpec)
+	if err != nil {
+		_ = stateMap.Close()
+		ic.fallbackReason = fmt.Sprintf("create egress targets bpf map failed: %v", err)
+		return ic, err
+	}
+
+	// 初始化已有 targets
+	for _, t := range ic.targets {
+		k := EgressTargetKey{
+			DestIP:   IPv4ToNetOrderUint32(t.DestIP),
+			DestPort: uint32(Htons(t.DestPort)),
+		}
+		v := EgressTargetVal{
+			ProxyPort: uint32(Htons(t.ProxyPort)),
+		}
+		_ = targetsMap.Put(&k, &v)
+	}
+
 	progSpec := &ebpf.ProgramSpec{
 		Name:       ProgramName,
 		Type:       ebpf.CGroupSockAddr,
@@ -192,11 +252,13 @@ func NewInterceptor(cfg Config) (*Interceptor, error) {
 		License:    "Dual BSD/GPL",
 		Instructions: buildConnect4Instructions(
 			stateMap.FD(),
+			targetsMap.FD(),
 		),
 	}
 
 	prog, err := ebpf.NewProgram(progSpec)
 	if err != nil {
+		_ = targetsMap.Close()
 		_ = stateMap.Close()
 		ic.fallbackReason = fmt.Sprintf("load cgroup/connect4 bpf program failed: %v", err)
 		return ic, err
@@ -209,6 +271,7 @@ func NewInterceptor(cfg Config) (*Interceptor, error) {
 	})
 	if err != nil {
 		_ = prog.Close()
+		_ = targetsMap.Close()
 		_ = stateMap.Close()
 		ic.fallbackReason = fmt.Sprintf("attach cgroup (%s) failed: %v", cfg.CgroupPath, err)
 		return ic, err
@@ -222,6 +285,7 @@ func NewInterceptor(cfg Config) (*Interceptor, error) {
 	}
 
 	ic.stateMap = stateMap
+	ic.targetsMap = targetsMap
 	ic.prog = prog
 	ic.cgroupLink = cgLink
 	ic.progID = progInfoID
@@ -254,7 +318,7 @@ func buildBPFState(cfg Config) BPFState {
 }
 
 // buildConnect4Instructions 使用 cilium/ebpf/asm 构建内核态 cgroup/connect4 字节码。
-func buildConnect4Instructions(mapFD int) asm.Instructions {
+func buildConnect4Instructions(stateMapFD, targetsMapFD int) asm.Instructions {
 	const (
 		offMonitorPID       = 0
 		offEnableFlags      = 8
@@ -276,7 +340,7 @@ func buildConnect4Instructions(mapFD int) asm.Instructions {
 
 		// 在栈上准备 key = 0: *(uint32 *)(FP - 4) = 0
 		asm.StoreImm(asm.RFP, -4, 0, asm.Word),
-		asm.LoadMapPtr(asm.R1, mapFD),
+		asm.LoadMapPtr(asm.R1, stateMapFD),
 		asm.Mov.Reg(asm.R2, asm.RFP),
 		asm.Add.Imm(asm.R2, -4),
 		asm.FnMapLookupElem.Call(),
@@ -307,24 +371,45 @@ func buildConnect4Instructions(mapFD int) asm.Instructions {
 		asm.LoadMem(asm.R8, asm.R6, sockAddrOffsetUserPort, asm.Word).WithSymbol("check_ports"),
 		asm.LoadMem(asm.R9, asm.R7, offEnableFlags, asm.DWord),
 
-		// 1. 检查是否启用并匹配 Egress (如 TargetPID -> TargetEgressIP:Port)
+		// 1. 检查是否启用出站拦截
 		asm.Mov.Reg(asm.R1, asm.R9),
 		asm.And.Imm(asm.R1, int32(FlagInterceptEgress)),
 		asm.JEq.Imm(asm.R1, 0, "check_ingress"),
 
 		// 若设置了 TargetPID (> 0)，仅当 current_tgid == TargetPID 时才拦截 Egress
 		asm.LoadMem(asm.R1, asm.R7, offTargetPID, asm.DWord),
-		asm.JEq.Imm(asm.R1, 0, "check_egress_addr"),
+		asm.JEq.Imm(asm.R1, 0, "lookup_targets_map"),
 		asm.JNE.Reg(asm.R5, asm.R1, "check_ingress"),
 
-		// 校验目标 IP 是否等于 EgressOrigIPNet 且目标端口是否等于 EgressOrigPortNet
-		asm.LoadMem(asm.R2, asm.R6, sockAddrOffsetUserIP4, asm.Word).WithSymbol("check_egress_addr"),
+		// 1.1 优先在 targetsMap (BPF_MAP_TYPE_HASH) 中检索 (ctx->user_ip4, ctx->user_port)
+		asm.LoadMem(asm.R1, asm.R6, sockAddrOffsetUserIP4, asm.Word).WithSymbol("lookup_targets_map"),
+		asm.StoreMem(asm.RFP, -16, asm.R1, asm.Word),
+		asm.StoreMem(asm.RFP, -12, asm.R8, asm.Word),
+		asm.LoadMapPtr(asm.R1, targetsMapFD),
+		asm.Mov.Reg(asm.R2, asm.RFP),
+		asm.Add.Imm(asm.R2, -16),
+		asm.FnMapLookupElem.Call(),
+		asm.JEq.Imm(asm.R0, 0, "check_legacy_egress"),
+
+		// 命中 targetsMap: R0 指向 EgressTargetVal (ProxyPort 为 4 字节 Word)
+		asm.LoadMem(asm.R3, asm.R0, 0, asm.Word),
+		asm.Mov.Imm(asm.R2, loopbackIPv4NetOrder),
+		asm.StoreMem(asm.R6, sockAddrOffsetUserIP4, asm.R2, asm.Word),
+		asm.StoreMem(asm.R6, sockAddrOffsetUserPort, asm.R3, asm.Word),
+		asm.LoadMem(asm.R1, asm.R7, offStatEgressRedir, asm.DWord),
+		asm.Add.Imm(asm.R1, 1),
+		asm.StoreMem(asm.R7, offStatEgressRedir, asm.R1, asm.DWord),
+		asm.Ja.Label("exit_allow"),
+
+		// 1.2 兼容单目标 Legacy Egress 配置 (EgressOrigIPNet, EgressOrigPortNet)
+		asm.LoadMem(asm.R2, asm.R7, offEgressOrig, asm.DWord).WithSymbol("check_legacy_egress"),
+		asm.JEq.Imm(asm.R2, 0, "check_ingress"),
+		asm.LoadMem(asm.R1, asm.R6, sockAddrOffsetUserIP4, asm.Word),
 		asm.LoadMem(asm.R3, asm.R7, offEgressOrigIP, asm.DWord),
-		asm.JNE.Reg(asm.R2, asm.R3, "check_ingress"),
-		asm.LoadMem(asm.R2, asm.R7, offEgressOrig, asm.DWord),
+		asm.JNE.Reg(asm.R1, asm.R3, "check_ingress"),
 		asm.JNE.Reg(asm.R8, asm.R2, "check_ingress"),
 
-		// 命中 Egress：将 ctx->user_ip4 改写为 127.0.0.1，ctx->user_port 改写为 EgressProxyPort
+		// 命中 Legacy Egress：重定向至 127.0.0.1:EgressProxyPort
 		asm.Mov.Imm(asm.R3, loopbackIPv4NetOrder),
 		asm.StoreMem(asm.R6, sockAddrOffsetUserIP4, asm.R3, asm.Word),
 		asm.LoadMem(asm.R3, asm.R7, offEgressProxy, asm.DWord),
@@ -424,6 +509,78 @@ func (ic *Interceptor) UpdateTargetProcess(targetPID int, ingressOrigPort uint16
 	return ic.stateMap.Put(&keyZero, &cur)
 }
 
+// AddEgressTarget 动态添加一个出站拦截目标 (如 "127.0.0.1:19201" -> proxyPort)。
+func (ic *Interceptor) AddEgressTarget(destIP string, destPort, proxyPort uint16) error {
+	ic.mu.Lock()
+	defer ic.mu.Unlock()
+
+	trimmedIP := strings.TrimSpace(destIP)
+	if trimmedIP == "" {
+		trimmedIP = "127.0.0.1"
+	}
+	keyStr := fmt.Sprintf("%s:%d", trimmedIP, destPort)
+	if ic.targets == nil {
+		ic.targets = make(map[string]EgressTargetInfo)
+	}
+	ic.targets[keyStr] = EgressTargetInfo{
+		DestIP:    trimmedIP,
+		DestPort:  destPort,
+		ProxyPort: proxyPort,
+	}
+
+	if !ic.kernelActive || ic.targetsMap == nil {
+		return nil
+	}
+
+	key := EgressTargetKey{
+		DestIP:   IPv4ToNetOrderUint32(trimmedIP),
+		DestPort: uint32(Htons(destPort)),
+	}
+	val := EgressTargetVal{
+		ProxyPort: uint32(Htons(proxyPort)),
+	}
+	return ic.targetsMap.Put(&key, &val)
+}
+
+// RemoveEgressTarget 动态移除一个出站拦截目标。
+func (ic *Interceptor) RemoveEgressTarget(destIP string, destPort uint16) error {
+	ic.mu.Lock()
+	defer ic.mu.Unlock()
+
+	trimmedIP := strings.TrimSpace(destIP)
+	if trimmedIP == "" {
+		trimmedIP = "127.0.0.1"
+	}
+	keyStr := fmt.Sprintf("%s:%d", trimmedIP, destPort)
+	delete(ic.targets, keyStr)
+
+	if !ic.kernelActive || ic.targetsMap == nil {
+		return nil
+	}
+
+	key := EgressTargetKey{
+		DestIP:   IPv4ToNetOrderUint32(trimmedIP),
+		DestPort: uint32(Htons(destPort)),
+	}
+	err := ic.targetsMap.Delete(&key)
+	if errors.Is(err, ebpf.ErrKeyNotExist) {
+		return nil
+	}
+	return err
+}
+
+// ListEgressTargets 返回当前配置的所有出站拦截目标。
+func (ic *Interceptor) ListEgressTargets() []EgressTargetInfo {
+	ic.mu.RLock()
+	defer ic.mu.RUnlock()
+
+	res := make([]EgressTargetInfo, 0, len(ic.targets))
+	for _, v := range ic.targets {
+		res = append(res, v)
+	}
+	return res
+}
+
 // Status 读取当前 eBPF 探针状态及内核 BPF Map 实时统计指标。
 func (ic *Interceptor) Status() RuntimeStatus {
 	ic.mu.RLock()
@@ -432,6 +589,11 @@ func (ic *Interceptor) Status() RuntimeStatus {
 	egressIP := ic.cfg.EgressOrigIP
 	if egressIP == "" {
 		egressIP = "127.0.0.1"
+	}
+
+	targets := make([]EgressTargetInfo, 0, len(ic.targets))
+	for _, t := range ic.targets {
+		targets = append(targets, t)
 	}
 
 	st := RuntimeStatus{
@@ -448,6 +610,7 @@ func (ic *Interceptor) Status() RuntimeStatus {
 		EgressOrigIP:       egressIP,
 		EgressOrigPort:     ic.cfg.EgressOrigPort,
 		EgressProxyPort:    ic.cfg.EgressProxyPort,
+		Targets:            targets,
 		FallbackReason:     ic.fallbackReason,
 	}
 
@@ -483,6 +646,12 @@ func (ic *Interceptor) Close() error {
 			errs = append(errs, err)
 		}
 		ic.prog = nil
+	}
+	if ic.targetsMap != nil {
+		if err := ic.targetsMap.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		ic.targetsMap = nil
 	}
 	if ic.stateMap != nil {
 		if err := ic.stateMap.Close(); err != nil {
