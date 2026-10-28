@@ -118,6 +118,11 @@ type Engine struct {
 
 	subMu       sync.Mutex
 	subscribers map[chan CapturedFrameEvent]struct{}
+
+	sessionMu        sync.RWMutex
+	currentSession   RecordingSession
+	activeTraces     map[uint64]*TransactionTrace
+	sessionStartTime time.Time
 }
 
 // EngineConfig 定义监控与回放引擎初始化配置。
@@ -155,6 +160,19 @@ func NewEngine(cfg EngineConfig) *Engine {
 		},
 		egressMocks: make(map[string]*RecordedMockAsset),
 		subscribers: make(map[chan CapturedFrameEvent]struct{}),
+		currentSession: RecordingSession{
+			SessionID:    "REC-INIT",
+			Title:        "待命准备就绪",
+			Status:       SessionStatusIdle,
+			StartedAt:    time.Now().Format("15:04:05"),
+			TargetPID:    0,
+			ProcessName:  "flowbench-sandbox (Built-in Playground)",
+			IngressPort:  cfg.VirtualSrvPort,
+			RawFrames:    make([]CapturedFrameEvent, 0),
+			Traces:       make([]TransactionTrace, 0),
+			MocksCreated: make([]RecordedMockAsset, 0),
+		},
+		activeTraces: make(map[uint64]*TransactionTrace),
 	}
 
 	// 尝试挂载内核 cilium/ebpf cgroup/connect4 探针 (MonitorPID 设为 999999999 以使本进程内的 Client/Server 调用同样经受内核 eBPF 重定向)
@@ -217,6 +235,8 @@ func (e *Engine) publishFrameWithBackend(f *codec.Frame, direction, mode, target
 		}
 	}
 	e.subMu.Unlock()
+
+	e.ingestFrameIntoSession(ev)
 
 	return ev
 }

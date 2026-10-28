@@ -29,6 +29,8 @@ type DashboardStatusResponse struct {
 	RecordedCases  []RecordedCaseAsset   `json:"recorded_cases"`
 	RecordedMocks  []RecordedMockAsset   `json:"recorded_mocks"`
 	LastReport     *ExperimentReport     `json:"last_report,omitempty"`
+	CurrentSession RecordingSession      `json:"current_session"`
+	Telemetry      LinkTelemetrySnapshot `json:"telemetry"`
 }
 
 // WebServer 封装内嵌安全 Web 控制台的 HTTP 与 SSE 服务。
@@ -79,6 +81,11 @@ func (ws *WebServer) Start() (string, error) {
 	mux.HandleFunc("/api/protocol/spec", ws.handleProtocolSpec)
 	mux.HandleFunc("/api/protocol/schema", ws.handleProtocolSchema)
 	mux.HandleFunc("/api/mocks/update", ws.handleUpdateMock)
+	mux.HandleFunc("/api/session/start", ws.handleSessionStart)
+	mux.HandleFunc("/api/session/stop", ws.handleSessionStop)
+	mux.HandleFunc("/api/session/current", ws.handleSessionCurrent)
+	mux.HandleFunc("/api/session/traces", ws.handleSessionTraces)
+	mux.HandleFunc("/api/replay/single", ws.handleReplaySingle)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -151,6 +158,8 @@ func (ws *WebServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		RecordedCases:  cases,
 		RecordedMocks:  mocks,
 		LastReport:     lastRep,
+		CurrentSession: ws.engine.GetCurrentSession(),
+		Telemetry:      ws.engine.GetTelemetrySnapshot(),
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(resp)
@@ -442,10 +451,24 @@ func (ws *WebServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	ctx := r.Context()
+	telemetryTicker := time.NewTicker(1 * time.Second)
+	defer telemetryTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-telemetryTicker.C:
+			snap := ws.engine.GetTelemetrySnapshot()
+			payload := map[string]any{
+				"event_type": "telemetry",
+				"telemetry":  snap,
+			}
+			b, err := json.Marshal(payload)
+			if err == nil {
+				_, _ = fmt.Fprintf(w, "data: %s\n\n", b)
+				flusher.Flush()
+			}
 		case ev, open := <-ch:
 			if !open {
 				return
@@ -494,4 +517,100 @@ func (ws *WebServer) handleRunExperiment(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(report)
+}
+
+func (ws *WebServer) handleSessionStart(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req SessionStartRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	sess, err := ws.engine.StartSession(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var ebpfSt any
+	if ws.engine.interceptor != nil {
+		ebpfSt = ws.engine.interceptor.Status()
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"session":     sess,
+		"ebpf_status": ebpfSt,
+	})
+}
+
+func (ws *WebServer) handleSessionStop(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess, err := ws.engine.StopSession()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"session": sess,
+	})
+}
+
+func (ws *WebServer) handleSessionCurrent(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	sess := ws.engine.GetCurrentSession()
+	telemetry := ws.engine.GetTelemetrySnapshot()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"session":   sess,
+		"telemetry": telemetry,
+	})
+}
+
+func (ws *WebServer) handleSessionTraces(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	q := r.URL.Query().Get("q")
+	traces := ws.engine.ListTransactionTraces(q)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"traces": traces,
+	})
+}
+
+func (ws *WebServer) handleReplaySingle(w http.ResponseWriter, r *http.Request) {
+	applySecurityHeaders(w)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req SingleReplayRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536)).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	res, err := ws.engine.ReplaySingleTrace(ctx, "", req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(res)
 }

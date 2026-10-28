@@ -1,10 +1,16 @@
 (function () {
   "use strict";
 
+  var currentSession = null;
+  var sessionTimerInterval = null;
+  var sessionStartEpoch = 0;
+  var transactionTraces = [];
   var capturedFrames = [];
   var recordedMocks = [];
-  var selectedSeqID = null;
+  var selectedTrace = null;
+  var selectedFrame = null;
   var activeFramingSpec = null;
+  var activeFilter = "";
 
   function el(tag, className, text) {
     var node = document.createElement(tag);
@@ -65,130 +71,494 @@
     return { cls: "byte-cell", label: "Hdr" };
   }
 
-  function renderEBPFMetrics(status, attachedTarget, framingSpec) {
-    if (status) {
-      setText("metric-mode", status.mode || "UNKNOWN");
-      setText("metric-prog-id", status.program_id ? "#" + status.program_id : "Userspace");
-      setText(
-        "metric-intercept-cnt",
-        (status.stat_ingress_redirected || 0) + " / " + (status.stat_egress_redirected || 0)
-      );
-    }
-    if (attachedTarget) {
-      var pidLabel = attachedTarget.target_pid > 0
-        ? "PID " + attachedTarget.target_pid + " (" + attachedTarget.process_name + ")"
-        : "Sandbox (PID=0)";
-      setText("metric-target-pid", pidLabel);
-      setText(
-        "attach-status-badge",
-        attachedTarget.attached
-          ? "🎯 已挂载: PID " + attachedTarget.target_pid + " | 入站:" + attachedTarget.ingress_orig_port + " | 下游:" + attachedTarget.egress_orig_ip + ":" + attachedTarget.egress_orig_port
-          : "当前：内置沙箱演练模式"
-      );
-      setText(
-        "topo-server-desc",
-        "127.0.0.1:" + attachedTarget.ingress_orig_port + " (TargetPID=" + attachedTarget.target_pid + ")"
-      );
-      setText(
-        "topo-egress-arrow",
-        "connect4(" + attachedTarget.egress_orig_ip + ":" + attachedTarget.egress_orig_port + ")"
-      );
-      renderBackendChips(attachedTarget.backends || []);
-    }
-    if (framingSpec) {
-      activeFramingSpec = framingSpec;
-      setText("metric-proto-name", framingSpec.preset_id || framingSpec.protocol_name);
-      if (framingSpec.preset_id === "cros-rpc-v1") {
-        setText("topo-wire-tag", "24B Comm + 256B/200B Session + Protobuf");
-        setText(
-          "framing-spec-summary",
-          "复合多级协议: DOPHI CROS RPC v1 | 24B 公共头 + 256B/200B 会话头 + 扩展头 | 寻址: Service/Operation 字符串契约 | 序列号: ullSNO(8B) 原地自愈"
-        );
-      } else {
-        setText(
-          "topo-wire-tag",
-          framingSpec.min_header_bytes + "B (" + framingSpec.byte_order + ") + Protobuf"
-        );
-        setText(
-          "framing-spec-summary",
-          "帧头: " +
-            framingSpec.min_header_bytes +
-            "B | 字节序: " +
-            framingSpec.byte_order +
-            " | 长度: Offset " +
-            (framingSpec.length_field ? framingSpec.length_field.offset : 0) +
-            " (" +
-            (framingSpec.length_field ? framingSpec.length_field.semantics : "") +
-            ") | SeqID: Offset " +
-            (framingSpec.seq_id_field ? framingSpec.seq_id_field.offset : 0) +
-            " (" +
-            (framingSpec.seq_id_field ? framingSpec.seq_id_field.width : 0) +
-            "B) | Checksum: " +
-            (framingSpec.checksum_field ? framingSpec.checksum_field.algorithm : "none") +
-            " (" +
-            (framingSpec.checksum_field ? framingSpec.checksum_field.scope : "") +
-            ")"
-        );
+  // 会话生命周期与计时器
+  function updateSessionUI(sess) {
+    if (!sess) return;
+    currentSession = sess;
+
+    var statusText = "待命就绪 (IDLE)";
+    var dotCls = "status-dot dot-idle";
+    var isRec = sess.status === "RECORDING";
+
+    var btnStart = document.getElementById("btn-session-start");
+    var btnStop = document.getElementById("btn-session-stop");
+    var timerEl = document.getElementById("session-timer");
+
+    if (isRec) {
+      statusText = "🔴 录制中 (RECORDING)";
+      dotCls = "status-dot dot-recording";
+      if (btnStart) btnStart.style.display = "none";
+      if (btnStop) btnStop.style.display = "inline-block";
+      if (timerEl) timerEl.style.display = "inline-block";
+      startSessionTimer();
+    } else {
+      if (sess.status === "STOPPED") {
+        statusText = "⏹ 会话已固化 (STOPPED)";
+        dotCls = "status-dot dot-stopped";
       }
+      if (btnStart) btnStart.style.display = "inline-block";
+      if (btnStop) btnStop.style.display = "none";
+      stopSessionTimer();
+    }
+
+    setText("session-status-text", statusText);
+    var dot = document.getElementById("session-dot");
+    if (dot) dot.className = dotCls;
+
+    var pidStr = sess.target_pid > 0
+      ? "PID " + sess.target_pid + " (" + sess.process_name + ":" + sess.ingress_port + ")"
+      : "Sandbox:9100";
+    setText("top-target-label", pidStr);
+    setText("top-session-count", (sess.total_traces || 0) + " 事务 / " + (sess.total_frames || 0) + " 帧");
+
+    setText("topo-sut-sub", pidStr);
+    setText("link-ingress-label", "connect4(:" + sess.ingress_port + ")");
+
+    if (sess.traces && sess.traces.length > 0) {
+      transactionTraces = sess.traces;
+      renderTracesList(transactionTraces);
     }
   }
 
-  function renderSchemaStatus(schemaStatus) {
-    if (!schemaStatus) return;
+  function startSessionTimer() {
+    if (sessionTimerInterval) return;
+    sessionStartEpoch = Date.now();
+    sessionTimerInterval = setInterval(function () {
+      var diffSec = Math.floor((Date.now() - sessionStartEpoch) / 1000);
+      var h = Math.floor(diffSec / 3600);
+      var m = Math.floor((diffSec % 3600) / 60);
+      var s = diffSec % 60;
+      var str = (h < 10 ? "0" + h : h) + ":" + (m < 10 ? "0" + m : m) + ":" + (s < 10 ? "0" + s : s);
+      setText("session-timer", str);
+    }, 1000);
+  }
+
+  function stopSessionTimer() {
+    if (sessionTimerInterval) {
+      clearInterval(sessionTimerInterval);
+      sessionTimerInterval = null;
+    }
+  }
+
+  function startRecordingSession() {
+    var pidVal = parseInt(document.getElementById("input-target-pid").value || "0", 10);
+    var ingPort = parseInt(document.getElementById("input-ingress-port").value || "9100", 10);
+
+    fetch("/api/session/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "手工联调录制 (" + new Date().toLocaleTimeString() + ")",
+        target_pid: pidVal,
+        process_name: "target-proc-" + pidVal,
+        ingress_port: ingPort
+      })
+    })
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (res) {
+        if (res.session) {
+          updateSessionUI(res.session);
+          var cfgDrawer = document.getElementById("config-drawer");
+          if (cfgDrawer) cfgDrawer.style.display = "none";
+        }
+      })
+      .catch(function (err) {
+        alert("开启监控录制失败: " + String(err));
+      });
+  }
+
+  function stopRecordingSession() {
+    fetch("/api/session/stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    })
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (res) {
+        if (res.session) {
+          updateSessionUI(res.session);
+          loadSessionTraces();
+        }
+      })
+      .catch(function (err) {
+        alert("停止监控录制失败: " + String(err));
+      });
+  }
+
+  function loadSessionTraces() {
+    fetch("/api/session/traces")
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (res) {
+        transactionTraces = res.traces || [];
+        renderTracesList(transactionTraces);
+      })
+      .catch(function () {});
+  }
+
+  // 渲染端到端调用事务树
+  function renderTracesList(traces) {
+    var container = document.getElementById("trace-items-list");
+    var emptyHint = document.getElementById("trace-empty-hint");
+    if (!container) return;
+
+    var list = traces || [];
+    setText("trace-count-label", "共 " + list.length + " 笔调用");
+
+    if (list.length === 0) {
+      if (emptyHint) emptyHint.style.display = "block";
+      return;
+    }
+    if (emptyHint) emptyHint.style.display = "none";
+
+    container.replaceChildren();
+
+    for (var i = list.length - 1; i >= 0; i--) {
+      (function (tr) {
+        var card = el("div", "trace-card " + (selectedTrace && selectedTrace.trace_id === tr.trace_id ? "active-trace" : ""));
+
+        // 头部
+        var head = el("div", "trace-head");
+        var hLeft = el("div", "th-left");
+        hLeft.appendChild(el("span", "th-reqid", "#" + tr.request_id));
+        hLeft.appendChild(el("span", "th-op", tr.op_name));
+
+        var statusBadgeCls = tr.status_name === "StatusOK" || tr.status_code === 200 || tr.status_code === 0x12
+          ? "badge badge-pass"
+          : "badge badge-fail";
+        hLeft.appendChild(el("span", statusBadgeCls, tr.status_name || "DONE"));
+        head.appendChild(hLeft);
+
+        var hRight = el("div", "th-right");
+        hRight.appendChild(el("span", "th-lat", (tr.duration_ms || 0).toFixed(1) + "ms"));
+        head.appendChild(hRight);
+        card.appendChild(head);
+
+        // 子调用树
+        var subBox = el("div", "trace-sub-items");
+
+        // Ingress 请求简要
+        var inReqRow = el("div", "sub-row");
+        inReqRow.appendChild(el("span", "sub-tag", "⬆️ Ingress"));
+        var inReqTxt = tr.ingress_req && tr.ingress_req.protobuf_json
+          ? JSON.stringify(tr.ingress_req.protobuf_json).slice(0, 45) + "..."
+          : tr.ingress_req.header.op_name;
+        inReqRow.appendChild(el("span", "sub-op", inReqTxt));
+        subBox.appendChild(inReqRow);
+
+        // 各个 Egress 子调用
+        var subCalls = tr.sub_calls || [];
+        for (var s = 0; s < subCalls.length; s++) {
+          var sc = subCalls[s];
+          var scRow = el("div", "sub-row");
+          scRow.appendChild(el("span", "sub-tag", "➡️ " + (sc.backend_name || sc.target_backend || "Egress")));
+          scRow.appendChild(el("span", "sub-op", sc.op_name));
+          scRow.appendChild(el("span", "sub-lat", (sc.duration_ms || 0).toFixed(1) + "ms"));
+          subBox.appendChild(scRow);
+        }
+
+        // Ingress 响应简要
+        if (tr.ingress_resp) {
+          var inRespRow = el("div", "sub-row");
+          inRespRow.appendChild(el("span", "sub-tag", "⬇️ 响应"));
+          var inRespTxt = tr.ingress_resp.protobuf_json
+            ? JSON.stringify(tr.ingress_resp.protobuf_json).slice(0, 45) + "..."
+            : "CRC32=" + tr.ingress_resp.header.crc32_hex;
+          inRespRow.appendChild(el("span", "sub-op", inRespTxt));
+          subBox.appendChild(inRespRow);
+        }
+
+        card.appendChild(subBox);
+
+        // 操作栏
+        var actRow = el("div", "trace-actions-row");
+        var btnInspect = el("button", "btn btn-xs btn-outline", "🔬 解剖");
+        btnInspect.type = "button";
+        btnInspect.addEventListener("click", function (e) {
+          e.stopPropagation();
+          selectTraceForInspect(tr);
+        });
+        actRow.appendChild(btnInspect);
+
+        var btnReplay = el("button", "btn btn-xs btn-primary", "🚀 原地重放");
+        btnReplay.type = "button";
+        btnReplay.addEventListener("click", function (e) {
+          e.stopPropagation();
+          selectTraceForReplay(tr);
+        });
+        actRow.appendChild(btnReplay);
+
+        card.appendChild(actRow);
+
+        card.addEventListener("click", function () {
+          selectTraceForInspect(tr);
+        });
+
+        container.appendChild(card);
+      })(list[i]);
+    }
+  }
+
+  function selectTraceForInspect(tr) {
+    selectedTrace = tr;
+    switchTab("panel-inspector");
+    if (tr.ingress_req) {
+      renderFrameDetail(tr.ingress_req);
+    } else if (tr.ingress_resp) {
+      renderFrameDetail(tr.ingress_resp);
+    }
+    renderTracesList(transactionTraces);
+  }
+
+  function selectTraceForReplay(tr) {
+    selectedTrace = tr;
+    switchTab("panel-replayer");
+
+    setText("replay-op-tag", "#" + tr.request_id + " " + tr.op_name);
     setText(
-      "schema-status-badge",
-      schemaStatus.schema_loaded
-        ? "✅ 已加载: " + schemaStatus.package_name + " (" + schemaStatus.total_messages + " Messages)"
-        : "⚠️ 无 Schema 模式 (protowire Tag 树降级激活)"
+      "replay-meta-text",
+      "录制耗时: " + (tr.duration_ms || 0).toFixed(2) + "ms | 状态: " + tr.status_name + " | 子调用: " + (tr.sub_calls ? tr.sub_calls.length : 0) + " 个"
     );
-    var ta = document.getElementById("textarea-proto-source");
-    if (ta && !ta.value && schemaStatus.proto_source) {
-      ta.value = schemaStatus.proto_source;
+
+    var ta = document.getElementById("textarea-replay-payload");
+    if (ta && tr.ingress_req && tr.ingress_req.protobuf_json) {
+      ta.value = JSON.stringify(tr.ingress_req.protobuf_json, null, 2);
     }
+
+    var resBox = document.getElementById("replay-result-box");
+    if (resBox) resBox.style.display = "none";
+
+    renderTracesList(transactionTraces);
   }
 
-  function renderMockSelector(mocks) {
-    recordedMocks = mocks || [];
-    var sel = document.getElementById("select-mock-asset");
-    if (!sel) return;
-    var prevVal = sel.value;
-    sel.replaceChildren();
-
-    if (recordedMocks.length === 0) {
-      sel.appendChild(el("option", "", "-- 先运行全链路录制以生成出站二进制 Mock 资产 --"));
+  function triggerSingleReplay() {
+    if (!selectedTrace) {
+      alert("请先从左侧选择一条调用事务！");
       return;
     }
 
-    for (var i = 0; i < recordedMocks.length; i++) {
-      var m = recordedMocks[i];
-      var opt = el(
-        "option",
-        "",
-        m.mock_id + " | " + m.op_name + " (CRC32=" + m.original_resp.header.crc32_hex + ", Hits=" + m.hit_count + ")"
-      );
-      opt.value = m.mock_id;
-      sel.appendChild(opt);
-    }
-
-    if (prevVal) {
-      sel.value = prevVal;
-    }
-    if (!sel.value && recordedMocks.length > 0) {
-      sel.value = recordedMocks[0].mock_id;
-    }
-    syncMockEditorTextarea();
-  }
-
-  function syncMockEditorTextarea() {
-    var sel = document.getElementById("select-mock-asset");
-    var ta = document.getElementById("textarea-mock-json");
-    if (!sel || !ta) return;
-    for (var i = 0; i < recordedMocks.length; i++) {
-      if (recordedMocks[i].mock_id === sel.value) {
-        ta.value = JSON.stringify(recordedMocks[i].original_resp.protobuf_json || {}, null, 2);
+    var ta = document.getElementById("textarea-replay-payload");
+    var overrideJSON = null;
+    if (ta && ta.value.trim()) {
+      try {
+        overrideJSON = JSON.parse(ta.value.trim());
+      } catch (err) {
+        alert("请求载荷 JSON 格式错误: " + String(err));
         return;
       }
     }
+
+    var btn = document.getElementById("btn-trigger-single-replay");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "🚀 正在重放执行中...";
+    }
+
+    fetch("/api/replay/single", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        trace_id: selectedTrace.trace_id,
+        override_payload_json: overrideJSON,
+        mock_egress: true
+      })
+    })
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (res) {
+        renderReplayResult(res);
+      })
+      .catch(function (err) {
+        alert("单调用重放执行失败: " + String(err));
+      })
+      .finally(function () {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "🚀 立即原地自愈重放 (Replay Single Call)";
+        }
+      });
+  }
+
+  function renderReplayResult(res) {
+    var resBox = document.getElementById("replay-result-box");
+    if (!resBox) return;
+    resBox.style.display = "block";
+
+    var badge = document.getElementById("replay-pass-badge");
+    if (badge) {
+      badge.className = "badge " + (res.passed ? "badge-pass" : "badge-fail");
+      badge.textContent = res.passed ? "✅ PASS 校验一致" : "⚠️ DIFF 发现差异";
+    }
+
+    setText(
+      "replay-summary-text",
+      "CRC32: 预期 " + res.expected_crc32 + " vs 实际 " + res.actual_crc32 + " | 重放耗时: " + (res.latency_ms || 0).toFixed(2) + "ms"
+    );
+
+    // 差异展示
+    var diffBox = document.getElementById("replay-diff-box");
+    var diffList = document.getElementById("replay-diff-list");
+    if (diffBox && diffList) {
+      if (res.field_diffs && res.field_diffs.length > 0) {
+        diffBox.style.display = "block";
+        diffList.replaceChildren();
+        for (var i = 0; i < res.field_diffs.length; i++) {
+          var d = res.field_diffs[i];
+          diffList.appendChild(
+            el("div", "diff-item", "字段 [" + d.field + "]: 预期 [" + d.expected + "] -> 实际 [" + d.actual + "]")
+          );
+        }
+      } else {
+        diffBox.style.display = "none";
+      }
+    }
+
+    // Side-by-Side 响应展示
+    if (selectedTrace && selectedTrace.ingress_resp) {
+      setText("replay-expected-json", JSON.stringify(selectedTrace.ingress_resp.protobuf_json || {}, null, 2));
+    }
+    if (res.actual_response) {
+      setText("replay-actual-json", JSON.stringify(res.actual_response.protobuf_json || {}, null, 2));
+    }
+  }
+
+  function switchTab(targetPanelId) {
+    var panels = document.querySelectorAll(".tab-panel");
+    for (var i = 0; i < panels.length; i++) {
+      panels[i].classList.remove("active");
+    }
+    var target = document.getElementById(targetPanelId);
+    if (target) target.classList.add("active");
+
+    var btns = document.querySelectorAll(".tab-btn");
+    for (var j = 0; j < btns.length; j++) {
+      btns[j].classList.remove("active");
+    }
+    if (targetPanelId === "panel-inspector") {
+      document.getElementById("tab-btn-inspector").classList.add("active");
+    } else if (targetPanelId === "panel-replayer") {
+      document.getElementById("tab-btn-replayer").classList.add("active");
+    } else if (targetPanelId === "panel-mock") {
+      document.getElementById("tab-btn-mock").classList.add("active");
+    }
+  }
+
+  // 遥测与动态拓扑更新
+  function renderTelemetry(telemetry) {
+    if (!telemetry) return;
+
+    var qps = (telemetry.total_qps || 0).toFixed(1);
+    var kbps = (telemetry.total_kbps || 0).toFixed(1);
+    setText("top-telemetry-throughput", kbps + " KB/s (" + qps + " QPS)");
+
+    var links = telemetry.links || {};
+
+    // Ingress 链路
+    var ing = links["client->sut"];
+    var ingLink = document.getElementById("link-ingress");
+    if (ingLink && ing) {
+      setText("link-ingress-label", "connect4(:9100) | " + ing.qps.toFixed(1) + " QPS");
+      if (ing.active) {
+        ingLink.classList.add("flow-active");
+      } else {
+        ingLink.classList.remove("flow-active");
+      }
+    }
+
+    // Egress 链路
+    var eg = links["sut->egress"];
+    var egLink = document.getElementById("link-egress");
+    if (egLink && eg) {
+      setText("link-egress-label", "connect4(:9200) | " + eg.qps.toFixed(1) + " QPS");
+      if (eg.active) {
+        egLink.classList.add("flow-active");
+      } else {
+        egLink.classList.remove("flow-active");
+      }
+    }
+  }
+
+  function renderFrameDetail(frame) {
+    if (!frame) return;
+    selectedFrame = frame;
+
+    setText(
+      "selected-frame-title",
+      "#" +
+        frame.seq_id +
+        " | " +
+        frame.direction +
+        " | " +
+        frame.header.op_name +
+        " (ReqID=" +
+        frame.header.request_id +
+        ")"
+    );
+
+    var hexArr = frame.header_bytes_hex || [];
+    setText(
+      "byte-matrix-caption",
+      (frame.header.protocol_name || "自定义二进制协议") +
+        " — 帧头字节色彩解剖图 (共 " +
+        hexArr.length +
+        " 字节)"
+    );
+
+    var matrix = document.getElementById("header-byte-matrix");
+    if (matrix) {
+      matrix.replaceChildren();
+      for (var i = 0; i < hexArr.length; i++) {
+        var meta = dynamicByteMeta(i, activeFramingSpec);
+        var cell = el("div", meta.cls);
+        var offLabel = el("span", "b-off", (i < 10 ? "0" + i : String(i)) + ":" + meta.label);
+        var hexVal = el("span", "b-hex", hexArr[i] || "00");
+        cell.appendChild(offLabel);
+        cell.appendChild(hexVal);
+        matrix.appendChild(cell);
+      }
+    }
+
+    var kvGrid = document.getElementById("header-kv-grid");
+    if (kvGrid) {
+      kvGrid.replaceChildren();
+      var items = [
+        ["Protocol / Magic", (frame.header.protocol_name || "Custom") + " (" + (frame.header.magic_hex || "None") + ")"],
+        ["OpCode", frame.header.op_code_hex + " (" + frame.header.op_name + ")"],
+        ["RequestID / SNO", String(frame.header.request_id)],
+        ["PayloadLen", frame.header.payload_length + " bytes"],
+        ["Checksum", frame.header.crc32_hex + (frame.crc32_valid ? " [VALID]" : " [INVALID]")],
+        ["Schema 反射状态", frame.header.schema_decoded ? "dynamicpb 明文" : "Wire Tag 降级树"]
+      ];
+      if (frame.header.service_name || frame.header.operation) {
+        items.splice(1, 0, [
+          "CROS 契约",
+          (frame.header.service_name || "") + "." + (frame.header.operation || "")
+        ]);
+      }
+      for (var j = 0; j < items.length; j++) {
+        var box = el("div", "kv-box");
+        box.appendChild(el("div", "k", items[j][0]));
+        box.appendChild(el("div", "v", items[j][1]));
+        kvGrid.appendChild(box);
+      }
+    }
+
+    setText("detail-protobuf-json", JSON.stringify(frame.protobuf_json || {}, null, 2));
+    setText(
+      "detail-raw-hex",
+      "[Wire Hex (" +
+        (frame.raw_wire_hex ? frame.raw_wire_hex.length / 2 : 0) +
+        "B)]:\n" +
+        (frame.raw_wire_hex || "") +
+        "\n\n[Base64]:\n" +
+        (frame.raw_base64 || "")
+    );
   }
 
   function renderProcessList(procs) {
@@ -203,12 +573,10 @@
         tr.appendChild(el("td", "", String(p.pid)));
         tr.appendChild(el("td", "", p.name));
         var listenStr = p.listen_ports && p.listen_ports.length > 0 ? p.listen_ports.join(", ") : "-";
-        var epStr = p.active_endpoints && p.active_endpoints.length > 0 ? p.active_endpoints.slice(0, 2).join(", ") : "-";
         tr.appendChild(el("td", "", listenStr));
-        tr.appendChild(el("td", "", epStr));
 
         var tdAct = el("td", "");
-        var btn = el("button", "btn btn-sm btn-primary", "🎯 选定");
+        var btn = el("button", "btn btn-xs btn-primary", "选定");
         btn.type = "button";
         btn.addEventListener("click", function (ev) {
           ev.stopPropagation();
@@ -262,8 +630,8 @@
       .then(function (r) {
         return r.json();
       })
-      .then(function (res) {
-        renderEBPFMetrics(res.ebpf_status, res.attached_target, activeFramingSpec);
+      .then(function () {
+        loadInitialState();
       })
       .catch(function () {});
   }
@@ -274,12 +642,9 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({})
     })
-      .then(function (r) {
-        return r.json();
-      })
-      .then(function (res) {
+      .then(function () {
         document.getElementById("input-target-pid").value = "0";
-        renderEBPFMetrics(res.ebpf_status, res.attached_target, activeFramingSpec);
+        loadInitialState();
       })
       .catch(function () {});
   }
@@ -289,7 +654,7 @@
     if (!container) return;
     container.replaceChildren();
     if (!backends || backends.length === 0) {
-      container.appendChild(el("span", "sub-hint", "未注册多后端（默认使用主下游配置）"));
+      container.appendChild(el("span", "sub-hint", "未注册多后端 (默认连向 127.0.0.1:9200)"));
       return;
     }
     for (var i = 0; i < backends.length; i++) {
@@ -328,9 +693,6 @@
         active: true
       })
     })
-      .then(function (r) {
-        return r.json();
-      })
       .then(function () {
         if (portInput) portInput.value = "";
         loadInitialState();
@@ -342,384 +704,28 @@
     fetch("/api/backends/remove", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        host: host,
-        port: port
-      })
+      body: JSON.stringify({ host: host, port: port })
     })
-      .then(function (r) {
-        return r.json();
-      })
       .then(function () {
         loadInitialState();
       })
       .catch(function () {});
   }
 
-  function renderFramingPresets(presets, activePresetID) {
-    var sel = document.getElementById("select-framing-preset");
-    if (!sel || !presets || presets.length === 0) return;
-    var currentVal = activePresetID || sel.value;
-    sel.replaceChildren();
-    presets.forEach(function (p) {
-      var opt = document.createElement("option");
-      opt.value = p.preset_id;
-      opt.textContent = p.preset_id + " (" + (p.protocol_name || p.description || "") + ")";
-      if (p.preset_id === currentVal) {
-        opt.selected = true;
-      }
-      sel.appendChild(opt);
-    });
-  }
-
-  function applyFramingPreset() {
-    var sel = document.getElementById("select-framing-preset");
-    if (!sel) return;
-    var presetID = sel.value;
-    var simOpCode = 0x11;
-    if (presetID === "cros-rpc-v1") {
-      simOpCode = 2; // RPC_MSG_TYPE_REQ
-    }
-    fetch("/api/protocol/spec", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        preset_id: presetID,
-        simulate: true,
-        sim_op_code: simOpCode,
-        sim_seq_id: 88001,
-        sim_json: {
-          userId: "USR-DSL-TEST",
-          skuId: "SKU-PRO-01",
-          quantity: 3,
-          vipLevel: 2,
-          region: "CN-EAST"
-        }
-      })
-    })
-      .then(function (r) {
-        return r.json();
-      })
-      .then(function (res) {
-        renderEBPFMetrics(null, null, res.framing_spec);
-        if (res.simulated_frame) {
-          renderFrameDetail(res.simulated_frame);
-        }
-      })
-      .catch(function () {});
-  }
-
-  function updateProtoSchema(action) {
-    var ta = document.getElementById("textarea-proto-source");
-    var src = ta ? ta.value : "";
-    fetch("/api/protocol/schema", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: action,
-        file_name: "custom_service.proto",
-        proto_source: src
-      })
-    })
-      .then(function (r) {
-        return r.json();
-      })
-      .then(function (res) {
-        if (res.schema_status) {
-          renderSchemaStatus(res.schema_status);
-          if (action === "restore_default" && ta && res.schema_status.proto_source) {
-            ta.value = res.schema_status.proto_source;
-          }
-        }
-        loadInitialState();
-      })
-      .catch(function () {});
-  }
-
-  function saveEditedMockJSON() {
-    var sel = document.getElementById("select-mock-asset");
-    var ta = document.getElementById("textarea-mock-json");
-    if (!sel || !ta || !sel.value) return;
-
-    var parsed;
-    try {
-      parsed = JSON.parse(ta.value);
-    } catch (err) {
-      setText("mock-edit-status", "❌ JSON 语法错误: " + String(err));
-      return;
-    }
-
-    fetch("/api/mocks/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mock_id: sel.value,
-        response_json: parsed
-      })
-    })
-      .then(function (r) {
-        if (!r.ok) {
-          throw new Error("HTTP " + r.status);
-        }
-        return r.json();
-      })
-      .then(function (res) {
-        if (res.updated_mock) {
-          setText(
-            "mock-edit-status",
-            "✅ 已重编码二进制帧并自愈 Checksum: " + res.updated_mock.original_resp.header.crc32_hex
-          );
-          renderFrameDetail(res.updated_mock.original_resp);
-          loadInitialState();
-        }
-      })
-      .catch(function (err) {
-        setText("mock-edit-status", "❌ 更新失败: " + String(err));
-      });
-  }
-
-  function renderFrameDetail(frame) {
-    if (!frame) return;
-    selectedSeqID = frame.seq_id;
-    setText(
-      "selected-frame-title",
-      "#" +
-        frame.seq_id +
-        " | " +
-        frame.direction +
-        " | " +
-        frame.header.op_name +
-        " (SeqID=" +
-        frame.header.request_id +
-        ")"
-    );
-
-    var hexArr = frame.header_bytes_hex || [];
-    setText(
-      "byte-matrix-caption",
-      (frame.header.protocol_name || "自定义二进制协议") +
-        " — 帧头字节色块解剖图 (共 " +
-        hexArr.length +
-        " 字节)"
-    );
-
-    var matrix = document.getElementById("header-byte-matrix");
-    if (matrix) {
-      matrix.replaceChildren();
-      for (var i = 0; i < hexArr.length; i++) {
-        var meta = dynamicByteMeta(i, activeFramingSpec);
-        var cell = el("div", meta.cls);
-        var offLabel = el("span", "b-off", (i < 10 ? "0" + i : String(i)) + ":" + meta.label);
-        var hexVal = el("span", "b-hex", hexArr[i] || "00");
-        cell.appendChild(offLabel);
-        cell.appendChild(hexVal);
-        matrix.appendChild(cell);
-      }
-    }
-
-    var kvGrid = document.getElementById("header-kv-grid");
-    if (kvGrid) {
-      kvGrid.replaceChildren();
-      var items = [
-        ["Protocol / Magic", (frame.header.protocol_name || "Custom") + " (" + (frame.header.magic_hex || "None") + ")"],
-        ["OpCode", frame.header.op_code_hex + " (" + frame.header.op_name + ")"],
-        ["SeqID / RequestID", String(frame.header.request_id)],
-        ["PayloadLen", frame.header.payload_length + " bytes"],
-        ["Checksum", frame.header.crc32_hex + (frame.crc32_valid ? " [VALID]" : " [INVALID]")],
-        ["Schema 反射状态", frame.header.schema_decoded ? "dynamicpb 明文" : "Wire Tag 降级树"]
-      ];
-      if (frame.header.service_name || frame.header.operation) {
-        items.splice(1, 0, [
-          "CROS 契约",
-          (frame.header.service_name || "") + "." + (frame.header.operation || "") + (frame.header.msg_type_name ? " [" + frame.header.msg_type_name + "]" : "")
-        ]);
-      }
-      if (frame.header.status_name && frame.header.status_name !== "StatusOK(0x00)") {
-        items.splice(3, 0, ["状态码 (Status)", frame.header.status_name]);
-      }
-      if (frame.target_backend) {
-        items.push(["Target Backend", frame.target_backend + (frame.backend_name ? " (" + frame.backend_name + ")" : "")]);
-      }
-      for (var j = 0; j < items.length; j++) {
-        var box = el("div", "kv-box");
-        box.appendChild(el("div", "k", items[j][0]));
-        box.appendChild(el("div", "v", items[j][1]));
-        kvGrid.appendChild(box);
-      }
-    }
-
-    setText("detail-protobuf-json", JSON.stringify(frame.protobuf_json || {}, null, 2));
-    setText(
-      "detail-raw-hex",
-      "[Wire Hex (" +
-        (frame.raw_wire_hex ? frame.raw_wire_hex.length / 2 : 0) +
-        "B)]:\n" +
-        (frame.raw_wire_hex || "") +
-        "\n\n[Base64]:\n" +
-        (frame.raw_base64 || "")
-    );
-  }
-
-  function renderFrameTable() {
-    var tbody = document.getElementById("frame-stream-tbody");
-    if (!tbody) return;
-    tbody.replaceChildren();
-    setText("frame-count-label", "共 " + capturedFrames.length + " 帧 (点击任意行解剖)");
-
-    var startIdx = Math.max(0, capturedFrames.length - 60);
-    for (var i = capturedFrames.length - 1; i >= startIdx; i--) {
-      (function (f) {
-        var tr = el("tr", f.seq_id === selectedSeqID ? "active-row" : "");
-        tr.appendChild(el("td", "", "#" + f.seq_id));
-        tr.appendChild(el("td", "", f.direction));
-        tr.appendChild(el("td", "", f.header.op_name));
-        tr.appendChild(el("td", "", f.header.request_id));
-        tr.appendChild(el("td", "", f.header.payload_length + "B"));
-        tr.appendChild(el("td", "", f.header.crc32_hex));
-        tr.appendChild(
-          el("td", "", f.header.schema_decoded === false ? "TagFallback" : "dynamicpb")
-        );
-        tr.addEventListener("click", function () {
-          renderFrameDetail(f);
-          renderFrameTable();
-        });
-        tbody.appendChild(tr);
-      })(capturedFrames[i]);
-    }
-  }
-
-  function renderExperimentReport(report) {
-    if (!report) return;
-    renderEBPFMetrics(report.ebpf_status, null, null);
-
-    var badge = document.getElementById("report-summary-badge");
-    if (badge) {
-      badge.className = "badge " + (report.overall_passed ? "badge-pass" : "badge-fail");
-      badge.textContent =
-        report.mode_description +
-        " | 通过: " +
-        report.passed_scenarios +
-        "/" +
-        report.total_scenarios +
-        " | Mock 命中: " +
-        report.mocks_consumed +
-        "/" +
-        report.mocks_loaded +
-        " | 总耗时: " +
-        report.duration_ms.toFixed(1) +
-        "ms";
-    }
-
-    var backendNode = document.getElementById("topo-backend-node");
-    if (backendNode) {
-      backendNode.className = report.backend_online ? "topo-node" : "topo-node offline-node";
-    }
-    setText(
-      "topo-backend-status",
-      report.backend_online ? "127.0.0.1:9200 (ONLINE 真实进程)" : "127.0.0.1:9200 (OFFLINE 已关闭)"
-    );
-    setText(
-      "topo-backend-link",
-      report.backend_online ? "真实 TCP 二进制调用" : "🚫 已断开 (100% eBPF Mock)"
-    );
-
-    var container = document.getElementById("assertion-report-container");
-    if (!container) return;
-    container.replaceChildren();
-
-    var scenarios = report.scenarios || [];
-    for (var i = 0; i < scenarios.length; i++) {
-      var sc = scenarios[i];
-      var card = el("div", "scenario-card " + (sc.passed ? "pass" : "fail"));
-
-      var head = el("div", "sc-head");
-      head.appendChild(el("span", "sc-title", sc.scenario_id + " | " + sc.scenario_name));
-      head.appendChild(
-        el("span", "badge " + (sc.passed ? "badge-pass" : "badge-fail"), sc.passed ? "PASS" : "FAIL (DIFF)")
-      );
-      card.appendChild(head);
-
-      card.appendChild(
-        el(
-          "div",
-          "sc-meta",
-          "ReqID=" +
-            sc.request_id +
-            " | CRC32: 预期=" +
-            sc.expected_crc32 +
-            " vs 实际=" +
-            sc.actual_crc32 +
-            " | " +
-            sc.latency_ms.toFixed(2) +
-            "ms"
-        )
-      );
-
-      if (sc.error_message) {
-        card.appendChild(el("div", "diff-list", "Error: " + sc.error_message));
-      }
-
-      if (sc.field_diffs && sc.field_diffs.length > 0) {
-        var diffBox = el("div", "diff-list");
-        for (var d = 0; d < sc.field_diffs.length; d++) {
-          var df = sc.field_diffs[d];
-          diffBox.appendChild(
-            el("div", "diff-item", "⚠️ " + df.field + ": 预期 [" + df.expected + "] -> 实际 [" + df.actual + "]")
-          );
-        }
-        card.appendChild(diffBox);
-      }
-      container.appendChild(card);
-    }
-  }
-
-  function triggerExperiment(action) {
-    var btns = document.querySelectorAll(".action-buttons .btn");
-    for (var i = 0; i < btns.length; i++) {
-      btns[i].disabled = true;
-    }
-    setText("last-action-hint", "正在执行实验 [" + action + "] ...");
-
-    fetch("/api/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: action })
-    })
-      .then(function (res) {
-        return res.json();
-      })
-      .then(function (report) {
-        renderExperimentReport(report);
-        setText("last-action-hint", "实验 [" + action + "] 执行完成");
-        loadInitialState();
-      })
-      .catch(function (err) {
-        setText("last-action-hint", "执行失败: " + String(err));
-      })
-      .finally(function () {
-        for (var j = 0; j < btns.length; j++) {
-          btns[j].disabled = false;
-        }
-      });
-  }
-
   function initSSE() {
     var es = new EventSource("/api/events");
-    es.onopen = function () {
-      setText("metric-sse-status", "实时连接");
-    };
+    es.onopen = function () {};
     es.onmessage = function (ev) {
       try {
-        var frame = JSON.parse(ev.data);
-        capturedFrames.push(frame);
-        if (capturedFrames.length === 1 || selectedSeqID === null) {
-          renderFrameDetail(frame);
+        var payload = JSON.parse(ev.data);
+        if (payload.event_type === "telemetry") {
+          renderTelemetry(payload.telemetry);
+        } else {
+          // 帧事件到达，刷新事务列表并展示最新帧
+          capturedFrames.push(payload);
+          loadSessionTraces();
         }
-        renderFrameTable();
       } catch (ignore) {}
-    };
-    es.onerror = function () {
-      setText("metric-sse-status", "重连中...");
     };
   }
 
@@ -729,65 +735,96 @@
         return r.json();
       })
       .then(function (data) {
-        renderEBPFMetrics(data.ebpf_status, data.attached_target, data.framing_spec);
-        renderFramingPresets(data.framing_presets, data.framing_spec ? data.framing_spec.preset_id : null);
-        renderSchemaStatus(data.schema_status);
-        renderMockSelector(data.recorded_mocks || []);
-        if (data.recent_frames && data.recent_frames.length > 0) {
-          capturedFrames = data.recent_frames;
-          var targetFrame = capturedFrames[capturedFrames.length - 1];
-          for (var i = 0; i < capturedFrames.length; i++) {
-            if (capturedFrames[i].seq_id === selectedSeqID) {
-              targetFrame = capturedFrames[i];
-              break;
-            }
-          }
-          renderFrameDetail(targetFrame);
-          renderFrameTable();
+        if (data.current_session) {
+          updateSessionUI(data.current_session);
         }
-        if (data.last_report) {
-          renderExperimentReport(data.last_report);
+        if (data.telemetry) {
+          renderTelemetry(data.telemetry);
         }
+        if (data.attached_target) {
+          renderBackendChips(data.attached_target.backends || []);
+        }
+        if (data.framing_spec) {
+          activeFramingSpec = data.framing_spec;
+          setText("topo-sut-metric", "协议: " + (data.framing_spec.preset_id || data.framing_spec.protocol_name));
+        }
+        if (data.ebpf_status) {
+          setText("top-ebpf-mode", data.ebpf_status.mode || "eBPF Active");
+        }
+        loadSessionTraces();
       })
       .catch(function () {});
   }
 
   document.addEventListener("DOMContentLoaded", function () {
-    document.getElementById("btn-run-record").addEventListener("click", function () {
-      triggerExperiment("record");
+    // 会话主控按钮
+    document.getElementById("btn-session-start").addEventListener("click", startRecordingSession);
+    document.getElementById("btn-session-stop").addEventListener("click", stopRecordingSession);
+
+    // 折叠抽屉切换
+    document.getElementById("btn-toggle-config").addEventListener("click", function () {
+      var d = document.getElementById("config-drawer");
+      if (d) d.style.display = d.style.display === "none" ? "block" : "none";
     });
-    document.getElementById("btn-run-replay").addEventListener("click", function () {
-      triggerExperiment("replay");
-    });
-    document.getElementById("btn-run-mutation").addEventListener("click", function () {
-      triggerExperiment("mutation");
-    });
-    document.getElementById("btn-run-nondet").addEventListener("click", function () {
-      triggerExperiment("non_deterministic");
+    document.getElementById("btn-close-config").addEventListener("click", function () {
+      document.getElementById("config-drawer").style.display = "none";
     });
 
+    document.getElementById("btn-toggle-sandbox").addEventListener("click", function () {
+      var d = document.getElementById("sandbox-drawer");
+      if (d) d.style.display = d.style.display === "none" ? "block" : "none";
+    });
+    document.getElementById("btn-close-sandbox").addEventListener("click", function () {
+      document.getElementById("sandbox-drawer").style.display = "none";
+    });
+
+    // Tab 切换
+    document.getElementById("tab-btn-inspector").addEventListener("click", function () {
+      switchTab("panel-inspector");
+    });
+    document.getElementById("tab-btn-replayer").addEventListener("click", function () {
+      switchTab("panel-replayer");
+    });
+    document.getElementById("tab-btn-mock").addEventListener("click", function () {
+      switchTab("panel-mock");
+    });
+
+    // 单调用重放
+    document.getElementById("btn-trigger-single-replay").addEventListener("click", triggerSingleReplay);
+
+    // 进程扫描
     document.getElementById("btn-refresh-procs").addEventListener("click", scanProcesses);
     document.getElementById("proc-search-input").addEventListener("input", scanProcesses);
     document.getElementById("btn-attach-custom").addEventListener("click", function () {
       attachSelectedProcess();
     });
     document.getElementById("btn-detach-proc").addEventListener("click", detachProcess);
+
+    // 后端管理
     var addBackendBtn = document.getElementById("btn-add-backend");
-    if (addBackendBtn) {
-      addBackendBtn.addEventListener("click", addBackend);
+    if (addBackendBtn) addBackendBtn.addEventListener("click", addBackend);
+
+    // 事务过滤
+    var filterInput = document.getElementById("trace-filter-input");
+    if (filterInput) {
+      filterInput.addEventListener("input", function () {
+        var q = filterInput.value.trim().toLowerCase();
+        if (!q) {
+          renderTracesList(transactionTraces);
+          return;
+        }
+        var filtered = transactionTraces.filter(function (tr) {
+          return (
+            tr.op_name.toLowerCase().indexOf(q) !== -1 ||
+            String(tr.request_id).indexOf(q) !== -1 ||
+            (tr.status_name && tr.status_name.toLowerCase().indexOf(q) !== -1)
+          );
+        });
+        renderTracesList(filtered);
+      });
     }
-    document.getElementById("btn-apply-preset").addEventListener("click", applyFramingPreset);
-    document.getElementById("btn-import-proto").addEventListener("click", function () {
-      updateProtoSchema("import");
-    });
-    document.getElementById("btn-clear-proto").addEventListener("click", function () {
-      updateProtoSchema("clear");
-    });
-    document.getElementById("btn-restore-proto").addEventListener("click", function () {
-      updateProtoSchema("restore_default");
-    });
-    document.getElementById("select-mock-asset").addEventListener("change", syncMockEditorTextarea);
-    document.getElementById("btn-save-mock").addEventListener("click", saveEditedMockJSON);
+
+    document.getElementById("btn-refresh-traces").addEventListener("click", loadSessionTraces);
 
     loadInitialState();
     scanProcesses();

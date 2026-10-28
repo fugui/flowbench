@@ -26,8 +26,9 @@ flowchart LR
     M6["Milestone 6: 通用私有 Protobuf 协议平台演进<br/>(FramingSpec DSL / 纯 Go .proto 反射 / /proc 探测 / TargetPID 过滤)"]
     M7["Milestone 7: 多下游 Backend 路由劫持与 Mock 隔离<br/>(eBPF 多目标 HASH / 动态代理池 / (Backend, OpCode) 联合 Mock / Web 多后端)"]
     M8["Milestone 8: 工业级复合二进制协议支持<br/>(内置 CROS RPC 编解码 / 24B+252B复合拆包 / 微服务契约反射 / ullSNO 原地自愈)"]
+    M9["Milestone 9: 手工录制监控、动态拓扑与单调用自愈重放<br/>(交互式会话启停 / 端到端事务树 / SVG流动拓扑 / 单调用原地重放与Diff)"]
 
-    M1 ==> M2 ==> M3 ==> M4 ==> M5 ==> M6 ==> M7 ==> M8
+    M1 ==> M2 ==> M3 ==> M4 ==> M5 ==> M6 ==> M7 ==> M8 ==> M9
 ```
 
 ---
@@ -44,6 +45,7 @@ flowchart LR
 | **M6：通用私有 Protobuf 协议平台** | [`07-m6-universal-protobuf-platform.md`](file:///home/fugui/flowbench/docs/04-tasks/07-m6-universal-protobuf-platform.md) | `internal/codec/dynamic.go`、`internal/protocol/schema/`、`internal/monitor/proc.go`、`internal/ebpf/`、`internal/monitor/` | 声明式 `FramingSpec` DSL 拆帧、零依赖 `.proto` 动态反射、`/proc` 进程扫描与 `TargetPID` 精准拦截 |
 | **M7：多下游 Backend 路由劫持与 Mock 隔离** | [`08-m7-multi-backend-routing.md`](file:///home/fugui/flowbench/docs/04-tasks/08-m7-multi-backend-routing.md) | `internal/ebpf/`、`internal/monitor/platform.go`、`internal/monitor/engine.go`、`internal/monitor/web/`、`tests/multi_backend_test.go` | eBPF 多目标 HASH 重定向、动态代理池、`(TargetBackend, OpCode)` 联合索引隔离与同机多端口/跨机多后端集成测试 |
 | **M8：工业级复合二进制协议支持** | [`09-m8-composite-protocol-cros-rpc.md`](file:///home/fugui/flowbench/docs/04-tasks/09-m8-composite-protocol-cros-rpc.md) | `internal/codec/cros/`、`internal/codec/dynamic.go`、`internal/monitor/inspector.go`、`tests/cros_protocol_test.go` | 内置 CROS RPC 编解码器、24B+252B 复合拆包、基于契约的 Protobuf 动态反射与零开销序列号自愈 |
+| **M9：手工录制、动态拓扑与单调用自愈重放** | [`10-m9-interactive-session-and-replay.md`](file:///home/fugui/flowbench/docs/04-tasks/10-m9-interactive-session-and-replay.md) | `internal/monitor/session.go`、`internal/monitor/correlator.go`、`internal/monitor/replayer.go`、`internal/monitor/web/` | 交互式会话启停、端到端事务关联、SVG 动态流动拓扑画布、单调用原地自愈重放与字段级 Diff |
 
 ---
 
