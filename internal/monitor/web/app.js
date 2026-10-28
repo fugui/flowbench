@@ -29,6 +29,16 @@
   }
 
   function dynamicByteMeta(idx, spec) {
+    if (spec && spec.preset_id === "cros-rpc-v1") {
+      if (idx <= 6) return { cls: "byte-cell byte-magic", label: "Magic" };
+      if (idx === 7) return { cls: "byte-cell byte-op", label: "底座" };
+      if (idx >= 8 && idx <= 15) return { cls: "byte-cell byte-reqid", label: "SNO" };
+      if (idx >= 16 && idx <= 19) return { cls: "byte-cell byte-len", label: "总长" };
+      if (idx >= 20 && idx <= 21) return { cls: "byte-cell byte-crc", label: "头长" };
+      if (idx === 22) return { cls: "byte-cell byte-op", label: "Type" };
+      if (idx === 23) return { cls: "byte-cell byte-magic", label: "Pack" };
+      return { cls: "byte-cell", label: "会话" };
+    }
     if (!spec) {
       if (idx <= 1) return { cls: "byte-cell byte-magic", label: "Magic" };
       if (idx === 3) return { cls: "byte-cell byte-op", label: "Op" };
@@ -88,30 +98,38 @@
     if (framingSpec) {
       activeFramingSpec = framingSpec;
       setText("metric-proto-name", framingSpec.preset_id || framingSpec.protocol_name);
-      setText(
-        "topo-wire-tag",
-        framingSpec.min_header_bytes + "B (" + framingSpec.byte_order + ") + Protobuf"
-      );
-      setText(
-        "framing-spec-summary",
-        "帧头: " +
-          framingSpec.min_header_bytes +
-          "B | 字节序: " +
-          framingSpec.byte_order +
-          " | 长度: Offset " +
-          framingSpec.length_field.offset +
-          " (" +
-          framingSpec.length_field.semantics +
-          ") | SeqID: Offset " +
-          framingSpec.seq_id_field.offset +
-          " (" +
-          framingSpec.seq_id_field.width +
-          "B) | Checksum: " +
-          framingSpec.checksum_field.algorithm +
-          " (" +
-          framingSpec.checksum_field.scope +
-          ")"
-      );
+      if (framingSpec.preset_id === "cros-rpc-v1") {
+        setText("topo-wire-tag", "24B Comm + 256B/200B Session + Protobuf");
+        setText(
+          "framing-spec-summary",
+          "复合多级协议: DOPHI CROS RPC v1 | 24B 公共头 + 256B/200B 会话头 + 扩展头 | 寻址: Service/Operation 字符串契约 | 序列号: ullSNO(8B) 原地自愈"
+        );
+      } else {
+        setText(
+          "topo-wire-tag",
+          framingSpec.min_header_bytes + "B (" + framingSpec.byte_order + ") + Protobuf"
+        );
+        setText(
+          "framing-spec-summary",
+          "帧头: " +
+            framingSpec.min_header_bytes +
+            "B | 字节序: " +
+            framingSpec.byte_order +
+            " | 长度: Offset " +
+            (framingSpec.length_field ? framingSpec.length_field.offset : 0) +
+            " (" +
+            (framingSpec.length_field ? framingSpec.length_field.semantics : "") +
+            ") | SeqID: Offset " +
+            (framingSpec.seq_id_field ? framingSpec.seq_id_field.offset : 0) +
+            " (" +
+            (framingSpec.seq_id_field ? framingSpec.seq_id_field.width : 0) +
+            "B) | Checksum: " +
+            (framingSpec.checksum_field ? framingSpec.checksum_field.algorithm : "none") +
+            " (" +
+            (framingSpec.checksum_field ? framingSpec.checksum_field.scope : "") +
+            ")"
+        );
+      }
     }
   }
 
@@ -338,16 +356,37 @@
       .catch(function () {});
   }
 
+  function renderFramingPresets(presets, activePresetID) {
+    var sel = document.getElementById("select-framing-preset");
+    if (!sel || !presets || presets.length === 0) return;
+    var currentVal = activePresetID || sel.value;
+    sel.replaceChildren();
+    presets.forEach(function (p) {
+      var opt = document.createElement("option");
+      opt.value = p.preset_id;
+      opt.textContent = p.preset_id + " (" + (p.protocol_name || p.description || "") + ")";
+      if (p.preset_id === currentVal) {
+        opt.selected = true;
+      }
+      sel.appendChild(opt);
+    });
+  }
+
   function applyFramingPreset() {
     var sel = document.getElementById("select-framing-preset");
     if (!sel) return;
+    var presetID = sel.value;
+    var simOpCode = 0x11;
+    if (presetID === "cros-rpc-v1") {
+      simOpCode = 2; // RPC_MSG_TYPE_REQ
+    }
     fetch("/api/protocol/spec", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        preset_id: sel.value,
+        preset_id: presetID,
         simulate: true,
-        sim_op_code: 0x11,
+        sim_op_code: simOpCode,
         sim_seq_id: 88001,
         sim_json: {
           userId: "USR-DSL-TEST",
@@ -489,6 +528,15 @@
         ["Checksum", frame.header.crc32_hex + (frame.crc32_valid ? " [VALID]" : " [INVALID]")],
         ["Schema 反射状态", frame.header.schema_decoded ? "dynamicpb 明文" : "Wire Tag 降级树"]
       ];
+      if (frame.header.service_name || frame.header.operation) {
+        items.splice(1, 0, [
+          "CROS 契约",
+          (frame.header.service_name || "") + "." + (frame.header.operation || "") + (frame.header.msg_type_name ? " [" + frame.header.msg_type_name + "]" : "")
+        ]);
+      }
+      if (frame.header.status_name && frame.header.status_name !== "StatusOK(0x00)") {
+        items.splice(3, 0, ["状态码 (Status)", frame.header.status_name]);
+      }
       if (frame.target_backend) {
         items.push(["Target Backend", frame.target_backend + (frame.backend_name ? " (" + frame.backend_name + ")" : "")]);
       }
@@ -682,6 +730,7 @@
       })
       .then(function (data) {
         renderEBPFMetrics(data.ebpf_status, data.attached_target, data.framing_spec);
+        renderFramingPresets(data.framing_presets, data.framing_spec ? data.framing_spec.preset_id : null);
         renderSchemaStatus(data.schema_status);
         renderMockSelector(data.recorded_mocks || []);
         if (data.recent_frames && data.recent_frames.length > 0) {
