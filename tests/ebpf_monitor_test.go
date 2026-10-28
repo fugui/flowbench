@@ -153,7 +153,7 @@ func TestEBPFMonitor_FullLifecycleAndWebConsole(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&stBody); err != nil {
 		t.Fatalf("decode status response: %v", err)
 	}
-	if len(stBody.RecordedCases) != 6 || len(stBody.RecordedMocks) != 4 || len(stBody.FramingPresets) != 3 {
+	if len(stBody.RecordedCases) != 6 || len(stBody.RecordedMocks) != 4 || len(stBody.FramingPresets) != 4 {
 		t.Fatalf("unexpected dashboard status counts: cases=%d, mocks=%d, presets=%d",
 			len(stBody.RecordedCases), len(stBody.RecordedMocks), len(stBody.FramingPresets))
 	}

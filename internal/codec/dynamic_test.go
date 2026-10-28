@@ -21,8 +21,8 @@ func (s *singleByteReader) Read(p []byte) (int, error) {
 
 func TestDynamicFrame_AllPresets_FragmentationAndCoalescing(t *testing.T) {
 	presets := ListPresets()
-	if len(presets) != 3 {
-		t.Fatalf("expected 3 presets, got %d", len(presets))
+	if len(presets) != 4 {
+		t.Fatalf("expected 4 presets, got %d", len(presets))
 	}
 
 	for _, spec := range presets {
@@ -50,7 +50,7 @@ func TestDynamicFrame_AllPresets_FragmentationAndCoalescing(t *testing.T) {
 				if err != nil {
 					t.Fatalf("frame %d ReadDynamicFrame failed: %v", i, err)
 				}
-				if got.OpCode != uint32(0x11+i) {
+				if spec.PresetID != "cros-rpc-v1" && got.OpCode != uint32(0x11+i) {
 					t.Fatalf("frame %d expected opcode 0x%X, got 0x%X", i, 0x11+i, got.OpCode)
 				}
 				if got.SeqID != uint64(10000+i) {

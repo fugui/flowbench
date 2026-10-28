@@ -3,6 +3,7 @@
 package monitor
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fugui/flowbench/internal/codec"
+	"github.com/fugui/flowbench/internal/codec/cros"
 	"github.com/fugui/flowbench/internal/protocol"
 	"github.com/fugui/flowbench/internal/protocol/schema"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -37,6 +39,12 @@ type DecodedHeaderInfo struct {
 	CRC32Hex         string `json:"crc32_hex"`
 	ComputedCRC32Hex string `json:"computed_crc32_hex"`
 	SchemaDecoded    bool   `json:"schema_decoded"`
+	ServiceName      string `json:"service_name,omitempty"`
+	Operation        string `json:"operation,omitempty"`
+	MsgTypeName      string `json:"msg_type_name,omitempty"`
+	HeadLength       uint16 `json:"head_length,omitempty"`
+	StatusCode64     uint64 `json:"status_code_64,omitempty"`
+	TraceID          string `json:"trace_id,omitempty"`
 }
 
 // CapturedFrameEvent 表示监控器捕获并深度解剖的一帧自定义二进制报文事件。
@@ -148,6 +156,82 @@ func InspectDynamicFrame(df *codec.DynamicFrame, reg *schema.Registry, direction
 	var pbMap map[string]any
 	opName := fmt.Sprintf("OpCode(0x%02X)", df.OpCode)
 	schemaDecoded := false
+
+	// CROS 复合多级协议深度解剖特化处理
+	if df.Spec.PresetID == "cros-rpc-v1" {
+		cf, err := cros.ReadFrame(bytes.NewReader(rawBytes))
+		if err == nil {
+			var serviceName, operation, msgTypeName string
+			if cf.ReqHead != nil {
+				serviceName = cf.ReqHead.ServiceName
+				operation = cf.ReqHead.Operation
+			} else if cf.RspHead != nil {
+				serviceName = cf.RspHead.ServiceName
+				operation = cf.RspHead.Operation
+			}
+
+			switch cf.CommHead.MsgType {
+			case cros.MsgTypeReq:
+				msgTypeName = "RPC_MSG_TYPE_REQ"
+			case cros.MsgTypeRsp:
+				msgTypeName = "RPC_MSG_TYPE_RSP"
+			case cros.MsgTypeRspSeg:
+				msgTypeName = "RPC_MSG_TYPE_RSP_SEG"
+			case cros.MsgTypeMng:
+				msgTypeName = "RPC_MSG_TYPE_MNG"
+			default:
+				msgTypeName = fmt.Sprintf("RPC_MSG_TYPE(%d)", cf.CommHead.MsgType)
+			}
+
+			if serviceName != "" || operation != "" {
+				opName = serviceName + "." + operation
+			}
+
+			if reg != nil {
+				pbMap, _, schemaDecoded = reg.DecodePayloadByContract(serviceName, operation, dir, df.Payload)
+			} else {
+				pbMap = schema.DecodeWireTagsFallback(df.Payload)
+			}
+
+			headerInfo := DecodedHeaderInfo{
+				ProtocolName:     df.Spec.ProtocolName,
+				MagicHex:         df.MagicHex,
+				Version:          1,
+				OpCode:           df.OpCode,
+				OpCodeHex:        fmt.Sprintf("0x%02X", df.OpCode),
+				OpName:           opName,
+				StatusName:       "StatusOK(0x00)",
+				RequestID:        df.SeqID,
+				PayloadLength:    df.PayloadLen,
+				CRC32Hex:         "0x00000000",
+				ComputedCRC32Hex: "0x00000000",
+				SchemaDecoded:    schemaDecoded,
+				ServiceName:      serviceName,
+				Operation:        operation,
+				MsgTypeName:      msgTypeName,
+				HeadLength:       cf.CommHead.HeadLen,
+			}
+			if cf.RspHead != nil {
+				headerInfo.Status = uint8(cf.RspHead.StatusCode)
+				headerInfo.StatusName = fmt.Sprintf("Code(%d)", cf.RspHead.StatusCode)
+				headerInfo.StatusCode64 = cf.RspHead.StatusCode64
+			}
+
+			return CapturedFrameEvent{
+				SeqID:          seqID,
+				Timestamp:      time.Now().Format("15:04:05.000"),
+				Direction:      direction,
+				Mode:           mode,
+				Header:         headerInfo,
+				HeaderBytesHex: headerHexSlice,
+				CRC32Valid:     true,
+				ProtobufJSON:   pbMap,
+				RawWireHex:     strings.ToUpper(hex.EncodeToString(rawBytes)),
+				RawBase64:      base64.StdEncoding.EncodeToString(rawBytes),
+				LatencyMs:      latencyMs,
+			}
+		}
+	}
 
 	if reg != nil {
 		pbMap, opName, schemaDecoded = reg.DecodePayload(df.OpCode, dir, df.Payload)

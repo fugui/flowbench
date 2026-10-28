@@ -11,6 +11,8 @@ import (
 	"hash/crc32"
 	"io"
 	"strings"
+
+	"github.com/fugui/flowbench/internal/codec/cros"
 )
 
 // ByteOrderType 定义多字节整型字段的字节序
@@ -125,6 +127,9 @@ type DynamicFrame struct {
 
 // Validate 严格校验 FramingSpec 各字段偏移量、宽度与防 OOM 边界的合法性
 func (s *FramingSpec) Validate() error {
+	if s.PresetID == "cros-rpc-v1" {
+		return nil
+	}
 	if s.ByteOrder != ByteOrderBigEndian && s.ByteOrder != ByteOrderLittleEndian {
 		return fmt.Errorf("%w: unsupported byte_order %q", ErrInvalidFramingSpec, s.ByteOrder)
 	}
@@ -321,12 +326,52 @@ func PresetGamingSyncV1() FramingSpec {
 	}
 }
 
+// PresetCROSv1 返回平台内置的 DOPHI CROS RPC 复合多级协议规范模板
+func PresetCROSv1() FramingSpec {
+	return FramingSpec{
+		PresetID:       "cros-rpc-v1",
+		ProtocolName:   "DOPHI CROS RPC v1 (24B Comm + Multi-Tier)",
+		Description:    "DOPHI CROS 复合协议：24B 公共头 + 256B/200B 会话头 + 扩展头 + 字符串契约寻址",
+		ByteOrder:      ByteOrderBigEndian,
+		MinHeaderBytes: 24,
+		PayloadOffset:  24,
+		Magic: MagicFieldSpec{
+			Enabled:  true,
+			Offset:   0,
+			Length:   4,
+			ValueHex: "0x4353452E",
+		},
+		OpCodeField: IntFieldSpec{
+			Offset: 22,
+			Width:  1,
+			Type:   "uint8",
+		},
+		SeqIDField: IntFieldSpec{
+			Offset: 8,
+			Width:  8,
+			Type:   "uint64",
+		},
+		LengthField: LengthFieldSpec{
+			Offset:          16,
+			Width:           4,
+			Semantics:       LengthSemanticsTotalFrame,
+			Bias:            0,
+			MaxAllowedBytes: MaxPayloadSize,
+		},
+		ChecksumField: ChecksumFieldSpec{
+			Enabled:   false,
+			Algorithm: ChecksumNone,
+		},
+	}
+}
+
 // ListPresets 返回平台内置的所有标准私有协议模板
 func ListPresets() []FramingSpec {
 	return []FramingSpec{
 		PresetFlowBenchV1(),
 		PresetGenericFinancialV2(),
 		PresetGamingSyncV1(),
+		PresetCROSv1(),
 	}
 }
 
@@ -342,6 +387,27 @@ func GetPreset(presetID string) (FramingSpec, bool) {
 
 // ReadDynamicFrame 根据 FramingSpec 声明式规范从流 r 中拆解出一帧完整报文（免疫粘包与半包）
 func ReadDynamicFrame(r io.Reader, spec FramingSpec) (*DynamicFrame, error) {
+	if spec.PresetID == "cros-rpc-v1" {
+		cf, err := cros.ReadFrame(r)
+		if err != nil {
+			return nil, err
+		}
+		opCode := uint32(cf.CommHead.MsgType)
+		headerRaw := cf.RawWire[:len(cf.RawWire)-len(cf.Payload)]
+		return &DynamicFrame{
+			Spec:          spec,
+			HeaderRaw:     headerRaw,
+			Payload:       cf.Payload,
+			MagicHex:      "0x" + hex.EncodeToString(cf.CommHead.Magic[:]) + fmt.Sprintf("%02X", cf.CommHead.Protocol),
+			OpCode:        opCode,
+			SeqID:         cf.CommHead.SNO,
+			RawLengthVal:  cf.CommHead.Length,
+			PayloadLen:    uint32(len(cf.Payload)),
+			Checksum:      0,
+			ChecksumValid: true,
+		}, nil
+	}
+
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}
@@ -424,6 +490,29 @@ func ReadDynamicFrame(r io.Reader, spec FramingSpec) (*DynamicFrame, error) {
 
 // BuildDynamicFrame 按 FramingSpec 构造一个全新的二进制协议帧并自动计算长度与校验和
 func BuildDynamicFrame(spec FramingSpec, opCode uint32, seqID uint64, payload []byte) (*DynamicFrame, error) {
+	if spec.PresetID == "cros-rpc-v1" {
+		wire, err := cros.BuildReqFrame(seqID, "DefaultService", "DefaultOp", payload)
+		if err != nil {
+			return nil, err
+		}
+		cf, err := cros.ReadFrame(bytes.NewReader(wire))
+		if err != nil {
+			return nil, err
+		}
+		headerRaw := cf.RawWire[:len(cf.RawWire)-len(cf.Payload)]
+		return &DynamicFrame{
+			Spec:          spec,
+			HeaderRaw:     headerRaw,
+			Payload:       cf.Payload,
+			MagicHex:      "0x" + hex.EncodeToString(cf.CommHead.Magic[:]) + fmt.Sprintf("%02X", cf.CommHead.Protocol),
+			OpCode:        uint32(cf.CommHead.MsgType),
+			SeqID:         seqID,
+			RawLengthVal:  cf.CommHead.Length,
+			PayloadLen:    uint32(len(cf.Payload)),
+			Checksum:      0,
+			ChecksumValid: true,
+		}, nil
+	}
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}
@@ -444,6 +533,34 @@ func BuildDynamicFrame(spec FramingSpec, opCode uint32, seqID uint64, payload []
 
 // RebuildDynamicFrame 在保留原始帧头其他标志位的基础上，动态自愈重写序列号、更新载荷并重算长度与 Checksum
 func RebuildDynamicFrame(spec FramingSpec, origHeader []byte, newSeqID uint64, newPayload []byte) (*DynamicFrame, error) {
+	if spec.PresetID == "cros-rpc-v1" {
+		copiedWire := make([]byte, len(origHeader)+len(newPayload))
+		copy(copiedWire, origHeader)
+		copy(copiedWire[len(origHeader):], newPayload)
+		if err := cros.RebuildFrameSeqID(copiedWire, newSeqID); err != nil {
+			return nil, err
+		}
+		var headLen uint16 = 24
+		if len(copiedWire) >= 22 {
+			headLen = binary.BigEndian.Uint16(copiedWire[20:22])
+		}
+		newTotalLen := uint32(headLen) + uint32(len(newPayload))
+		if len(copiedWire) >= 20 {
+			binary.BigEndian.PutUint32(copiedWire[16:20], newTotalLen)
+		}
+		return &DynamicFrame{
+			Spec:          spec,
+			HeaderRaw:     copiedWire[:len(origHeader)],
+			Payload:       newPayload,
+			MagicHex:      "0x" + hex.EncodeToString(copiedWire[0:8]),
+			OpCode:        uint32(copiedWire[22]),
+			SeqID:         newSeqID,
+			RawLengthVal:  newTotalLen,
+			PayloadLen:    uint32(len(newPayload)),
+			Checksum:      0,
+			ChecksumValid: true,
+		}, nil
+	}
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}

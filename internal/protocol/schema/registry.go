@@ -216,6 +216,68 @@ func (r *Registry) ResolveDescriptor(opCode uint32, dir TrafficDirection) (proto
 	return md, b.OpName, found
 }
 
+// ResolveDescriptorByContract 根据微服务名与方法名（如 "OrderService", "CreateOrder"）动态解析 MessageDescriptor
+func (r *Registry) ResolveDescriptorByContract(serviceName, operation string, dir TrafficDirection) (protoreflect.MessageDescriptor, string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	opName := serviceName + "." + operation
+	if serviceName == "" {
+		opName = operation
+	}
+
+	suffix := "Request"
+	if dir == DirectionResp {
+		suffix = "Response"
+	}
+
+	candidates := []string{
+		operation + suffix,
+		operation + "Req",
+		operation + "Resp",
+		serviceName + operation + suffix,
+		operation,
+		opName,
+	}
+
+	for _, cand := range candidates {
+		if md, found := r.lookupDescriptorLocked(cand); found {
+			return md, opName, true
+		}
+	}
+	return nil, opName, false
+}
+
+// DecodePayloadByContract 根据服务名与方法名将二进制载荷反序列化为业务明文 JSON Map
+func (r *Registry) DecodePayloadByContract(serviceName, operation string, dir TrafficDirection, payload []byte) (decoded map[string]any, opName string, schemaDecoded bool) {
+	opName = serviceName + "." + operation
+	if serviceName == "" {
+		opName = operation
+	}
+	if len(payload) == 0 {
+		return map[string]any{}, opName, true
+	}
+
+	md, resolvedName, found := r.ResolveDescriptorByContract(serviceName, operation, dir)
+	if found && md != nil {
+		dynMsg := dynamicpb.NewMessage(md)
+		if err := proto.Unmarshal(payload, dynMsg); err == nil {
+			jsonBytes, mErr := (protojson.MarshalOptions{
+				EmitUnpopulated: true,
+			}).Marshal(dynMsg)
+			if mErr == nil {
+				var out map[string]any
+				if err := json.Unmarshal(jsonBytes, &out); err == nil {
+					return out, resolvedName, true
+				}
+			}
+		}
+	}
+
+	fallback := DecodeWireTagsFallback(payload)
+	return fallback, resolvedName, false
+}
+
 func (r *Registry) lookupDescriptorLocked(name string) (protoreflect.MessageDescriptor, bool) {
 	trimmed := strings.TrimPrefix(strings.TrimSpace(name), ".")
 	if md, ok := r.msgMap[trimmed]; ok {
